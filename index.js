@@ -1443,7 +1443,6 @@ let server = null;
 })();
 
 // ✅ FIX: Webhook mode မှာ bot.stop() က "Bot is not running!" ဖြစ်နိုင်လို့ safe shutdown
-let server = null;
 
 async function safeShutdown(signal) {
   console.log(`🧯 Shutdown signal: ${signal}`);
