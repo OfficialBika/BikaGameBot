@@ -1,5 +1,5 @@
 {
-  "name": "bika-pro-slot-bot",
+  "name": "bikagamebot",
   "version": "1.0.0",
   "main": "index.js",
   "type": "commonjs",
@@ -9,7 +9,7 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "mongodb": "^6.6.1",
+    "mongodb": "^6.9.0",
     "telegraf": "^4.16.3"
   }
 }
