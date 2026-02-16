@@ -1,26 +1,24 @@
 /**
- * BIKA Pro Slot Bot — FINAL (Single File, Render + Mongo)
- * ------------------------------------------------------------
- * ✅ ENV OWNER_ID sets bot owner
- * ✅ Treasury Total Supply (Owner bank) + Atomic transfers
- * ✅ /settotal 5000000, /treasury (owner only)
- * ✅ /start first time only bonus: +300 (Treasury -> User)
- * ✅ /dailyclaim group only, Yangon day reset: +50~100 (Treasury -> User)
- * ✅ Gift: /gift @user amount OR reply /gift amount (User -> User)
- * ✅ Owner: /addbalance & /removebalance (reply/@/id)
- * ✅ Shop: /shop inline buy -> creates PENDING orders
- * ✅ Admin dashboard: /admin inline + guided inputs
- * ✅ Slot: .slot 100 (group), animated edit UI:
- *    - sound-like emoji effect
- *    - win glow frame
- *    - jackpot celebration 2 frames
- *    - lose sad frame
- * ✅ RTP: /rtp and /setrtp 90 + Pro table (payout multipliers auto scale)
- * ✅ Payout safety: cap max 30% of treasury per spin + never exceed treasury
- * ✅ .mybalance (group only) Pro+ UI rank system
+ * BIKA Pro Slot Bot — FINAL (Single File, Render Web Service + Webhook)
+ * ---------------------------------------------------------------------
+ * ✅ Render Web Service + Webhook (Express)
+ * ✅ UptimeRobot ping endpoint: GET /
+ * ✅ MongoDB + Atomic Transfers
+ * ✅ Owner via ENV OWNER_ID
+ * ✅ Treasury bank: /settotal, /treasury (owner only)
+ * ✅ /start one-time bonus 300 (Treasury -> user)
+ * ✅ /dailyclaim group only (Yangon day) 50~100 (Treasury -> user)
+ * ✅ .slot 100 (group) animated edit UI: sound-like + glow + jackpot 2 + lose frame
+ * ✅ /setrtp 90 + /rtp pro table
+ * ✅ /shop inline buy -> PENDING orders
+ * ✅ /gift @user amount or reply /gift amount
+ * ✅ /addbalance /removebalance (owner, reply/@/id)
+ * ✅ /admin inline dashboard + guided input
+ * ✅ .mybalance (group only) Pro+ wallet rank system
  */
 
 require("dotenv").config();
+const express = require("express");
 const { Telegraf } = require("telegraf");
 const { MongoClient } = require("mongodb");
 
@@ -31,9 +29,14 @@ const DB_NAME = process.env.DB_NAME || "bika_slot";
 const TZ = process.env.TZ || "Asia/Yangon";
 const OWNER_ID = process.env.OWNER_ID ? Number(process.env.OWNER_ID) : null;
 
+const PUBLIC_URL = process.env.PUBLIC_URL;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
 if (!BOT_TOKEN) throw new Error("Missing BOT_TOKEN");
 if (!MONGO_URI) throw new Error("Missing MONGO_URI");
 if (!OWNER_ID || !Number.isFinite(OWNER_ID)) throw new Error("Missing/Invalid OWNER_ID (must be a number)");
+if (!PUBLIC_URL) throw new Error("Missing PUBLIC_URL (e.g. https://xxx.onrender.com)");
+if (!WEBHOOK_SECRET) throw new Error("Missing WEBHOOK_SECRET");
 
 // -------------------- Bot/DB --------------------
 const bot = new Telegraf(BOT_TOKEN);
@@ -158,12 +161,8 @@ async function getUserByUsername(username) {
 async function ensureTreasury() {
   const exist = await configCol.findOne({ key: "treasury" });
   if (exist) {
-    // If ownerUserId missing, set it from ENV (one-time fix)
     if (!exist.ownerUserId) {
-      await configCol.updateOne(
-        { key: "treasury" },
-        { $set: { ownerUserId: OWNER_ID, updatedAt: new Date() } }
-      );
+      await configCol.updateOne({ key: "treasury" }, { $set: { ownerUserId: OWNER_ID, updatedAt: new Date() } });
       return configCol.findOne({ key: "treasury" });
     }
     return exist;
@@ -306,7 +305,7 @@ bot.command("treasury", async (ctx) => {
   );
 });
 
-// -------------------- Start bonus + balance --------------------
+// -------------------- Start bonus + /balance --------------------
 const START_BONUS = 300;
 
 bot.start(async (ctx) => {
@@ -317,15 +316,10 @@ bot.start(async (ctx) => {
     try {
       await treasuryPayToUser(ctx.from.id, START_BONUS, { type: "start_bonus" });
     } catch (e) {
-      // still mark claimed to avoid repeated attempts
       console.error("start bonus pay fail:", e);
     }
 
-    await users.updateOne(
-      { userId: ctx.from.id },
-      { $set: { startBonusClaimed: true, updatedAt: new Date() } }
-    );
-
+    await users.updateOne({ userId: ctx.from.id }, { $set: { startBonusClaimed: true, updatedAt: new Date() } });
     const updated = await getUser(ctx.from.id);
 
     return ctx.reply(
@@ -333,13 +327,13 @@ bot.start(async (ctx) => {
         `➕ Bonus: *${fmt(START_BONUS)}* ${COIN}\n` +
         `💼 Balance: *${fmt(updated?.balance)}* ${COIN}\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        `Group ထဲမှာ:\n• /dailyclaim — daily bonus\n• .slot 100 — slot\n• .mybalance — wallet\n• /shop — shop`,
+        `Group:\n• /dailyclaim\n• .slot 100\n• .mybalance\n• /shop`,
       { parse_mode: "Markdown" }
     );
   }
 
   return ctx.reply(
-    `👋 *Welcome back*\n━━━━━━━━━━━━━━━━━━━━\nGroup ထဲမှာ:\n• /dailyclaim\n• .slot 100\n• .mybalance\n• /shop`,
+    `👋 *Welcome back*\n━━━━━━━━━━━━━━━━━━━━\nGroup:\n• /dailyclaim\n• .slot 100\n• .mybalance\n• /shop`,
     { parse_mode: "Markdown" }
   );
 });
@@ -369,9 +363,7 @@ bot.command("dailyclaim", async (ctx) => {
 
   if (last && last >= todayStart) {
     return ctx.reply(
-      `⏳ *Daily Claim*\n━━━━━━━━━━━━━━━━━━━━\n` +
-        `ဒီနေ့ claim လုပ်ပြီးသားပါ။\n` +
-        `Yangon time နဲ့ နေ့သစ်ဝင်ပြီးမှ ပြန် claim လုပ်နိုင်ပါတယ်။`,
+      `⏳ *Daily Claim*\n━━━━━━━━━━━━━━━━━━━━\nဒီနေ့ claim လုပ်ပြီးသားပါ။\nYangon time နဲ့ နေ့သစ်ဝင်ပြီးမှ ပြန် claim လုပ်နိုင်ပါတယ်။`,
       { parse_mode: "Markdown" }
     );
   }
@@ -412,7 +404,7 @@ function getBalanceRank(balance) {
   if (b >= 10001 && b <= 100000) return { title: "သိန်းကြွယ်သူဌေး အဆင့်", badge: "💰", color: "🟣" };
   if (b >= 100001 && b <= 1000000) return { title: "သန်းကြွယ်သူဌေးအကြီးစား အဆင့်", badge: "🏦", color: "🟡" };
   if (b >= 1000001 && b <= 50000000) return { title: "ကုဋေရှစ်ဆယ် သူဌေးကြီး အဆင့်", badge: "👑", color: "🟠" };
-  return { title: "လွန်ကဲသော သူဌေးကြီး အဆင့်", badge: "👑✨", color: "🟥" };
+  return { title: "ကုဋေရှစ်ဆယ် သူဌေးကြီးစား အဆင့်", badge: "👑✨", color: "🟥" };
 }
 
 function progressBar(current, min, max, blocks = 10) {
@@ -631,12 +623,12 @@ bot.command("removebalance", async (ctx) => {
 
 // -------------------- Shop + Orders --------------------
 const SHOP_ITEMS = [
-  { id: "dia11", name: "Diamonds 11 💎", price: 1000 },
-  { id: "dia22", name: "Diamonds 22 💎", price: 1900 },
-  { id: "dia33", name: "Diamonds 33 💎", price: 2800 },
-  { id: "dia44", name: "Diamonds 44 💎", price: 3700 },
-  { id: "dia55", name: "Diamonds 55 💎", price: 4600 },
-  { id: "wp1", name: "Weekly Pass 🎟️", price: 7000 },
+  { id: "dia11", name: "Diamonds 11 💎", price: 10000 },
+  { id: "dia22", name: "Diamonds 22 💎", price: 19500 },
+  { id: "dia33", name: "Diamonds 33 💎", price: 28500 },
+  { id: "dia44", name: "Diamonds 44 💎", price: 37000 },
+  { id: "dia55", name: "Diamonds 55 💎", price: 46000 },
+  { id: "wp1", name: "Weekly Pass 🎟️", price: 80000 },
 ];
 
 function shopKeyboard() {
@@ -672,11 +664,10 @@ bot.command("shop", async (ctx) => {
 
 // -------------------- Slot (Animated Edit UI) --------------------
 const SLOT = {
-  minBet: 100,
-  maxBet: 50000,
-  cooldownMs: 6000,
+  minBet: 50,
+  maxBet: 2000,
+  cooldownMs: 3000,
   capPercent: 0.30,
-
   reels: [
     [
       { s: "🍒", w: 3200 },
@@ -706,7 +697,6 @@ const SLOT = {
       { s: "7", w: 5 },
     ],
   ],
-
   payouts: {
     "7,7,7": 50,
     "BAR,BAR,BAR": 35,
@@ -732,28 +722,23 @@ function weightedPick(items) {
   }
   return items[items.length - 1].s;
 }
-
 function randomSymbolFromReel(reel) {
   const syms = reel.map((x) => x.s);
   return syms[Math.floor(Math.random() * syms.length)];
 }
-
 function isAnyTwo(a, b, c) {
   return (a === b && a !== c) || (a === c && a !== b) || (b === c && b !== a);
 }
-
 function calcMultiplier(a, b, c) {
   const key = `${a},${b},${c}`;
   if (SLOT.payouts[key] != null) return SLOT.payouts[key];
   if (isAnyTwo(a, b, c)) return SLOT.payouts.ANY2 || 0;
   return 0;
 }
-
 function slotArt(a, b, c) {
   const box = (x) => (x === "BAR" ? "🟥BAR🟥" : x === "7" ? "7️⃣" : x);
   return `┏━━━━━━━━━━━━━━┓\n┃  ${box(a)}  |  ${box(b)}  |  ${box(c)}  ┃\n┗━━━━━━━━━━━━━━┛`;
 }
-
 function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
   const art = slotArt(a, b, c);
 
@@ -800,7 +785,6 @@ async function runSlotSpinAnimated(ctx, bet) {
   await ensureUser(ctx.from);
   await ensureTreasury();
 
-  // take bet (atomic)
   try {
     await userPayToTreasury(userId, bet, { type: "slot_bet", bet, chatId: ctx.chat?.id });
   } catch (e) {
@@ -809,7 +793,6 @@ async function runSlotSpinAnimated(ctx, bet) {
     return ctx.reply("⚠️ Error ဖြစ်သွားပါတယ်။");
   }
 
-  // decide final
   const finalA = weightedPick(SLOT.reels[0]);
   const finalB = weightedPick(SLOT.reels[1]);
   const finalC = weightedPick(SLOT.reels[2]);
@@ -817,7 +800,6 @@ async function runSlotSpinAnimated(ctx, bet) {
   const mult = calcMultiplier(finalA, finalB, finalC);
   let payout = mult > 0 ? Math.floor(bet * mult) : 0;
 
-  // cap payout
   if (payout > 0) {
     const tr = await getTreasury();
     const ownerBal = tr?.ownerBalance || 0;
@@ -863,7 +845,6 @@ async function runSlotSpinAnimated(ctx, bet) {
     await safeEdit(spinFrame(f.a, f.b, f.c, f.note, f.vibe));
   }
 
-  // payout after animation
   if (payout > 0) {
     try {
       await treasuryPayToUser(userId, payout, { type: "slot_win", bet, payout, combo: `${finalA},${finalB},${finalC}` });
@@ -1350,14 +1331,42 @@ bot.on("callback_query", async (ctx) => {
   await ctx.answerCbQuery("OK");
 });
 
-// -------------------- Boot --------------------
+// -------------------- Webhook Boot (Render Web Service) --------------------
 (async () => {
   await connectMongo();
   await ensureTreasury();
-  await bot.launch();
-  console.log("🤖 Bot started");
-  console.log(`🕒 TZ env: ${TZ} (recommend: TZ=Asia/Yangon on Render)`);
-  console.log(`🛡️ Owner ID (env): ${OWNER_ID}`);
+
+  const app = express();
+  app.use(express.json());
+
+  const PORT = process.env.PORT || 3000;
+
+  const webhookPath = `/telegraf/${WEBHOOK_SECRET}`;
+  const webhookUrl = `${PUBLIC_URL}${webhookPath}`;
+
+  // Health check endpoint for UptimeRobot
+  app.get("/", (req, res) => res.status(200).send("OK"));
+
+  // Telegram will POST updates here
+  app.post(webhookPath, (req, res) => {
+    bot.handleUpdate(req.body, res);
+  });
+
+  app.listen(PORT, async () => {
+    console.log("✅ Web server listening on", PORT);
+
+    // remove old webhook (safe)
+    try {
+      await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+    } catch (_) {}
+
+    await bot.telegram.setWebhook(webhookUrl);
+    console.log("✅ Webhook set to:", webhookUrl);
+    console.log(`🕒 TZ env: ${TZ}`);
+    console.log(`🛡️ Owner ID (env): ${OWNER_ID}`);
+  });
+
+  console.log("🤖 Bot started (Webhook mode)");
 })();
 
 process.once("SIGINT", () => bot.stop("SIGINT"));
