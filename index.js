@@ -14,7 +14,12 @@
  * ✅ /gift @user amount or reply /gift amount
  * ✅ /addbalance /removebalance (owner, reply/@/id)
  * ✅ /admin inline dashboard + guided input
- * ✅ .mybalance (group only) Pro+ wallet rank system
+ * ✅ .mybalance (group only) Pro+ wallet rank system (HTML mention-safe)
+ *
+ * FIXED:
+ * ✅ Telegram 400 "can't parse entities" (Markdown underscore issue) fixed:
+ *    - .mybalance uses HTML + clickable mention
+ *    - all Markdown messages escape dynamic @username/labels with mdEscape()
  */
 
 require("dotenv").config();
@@ -96,6 +101,32 @@ function parseMentionUsername(text) {
     if (p.startsWith("@") && p.length > 1) return p.slice(1).toLowerCase();
   }
   return null;
+}
+
+// --- Safe text for Markdown (prevents 400 parse errors) ---
+function mdEscape(s = "") {
+  return String(s)
+    .replace(/\\/g, "\\\\")
+    .replace(/\*/g, "\\*")
+    .replace(/_/g, "\\_")
+    .replace(/`/g, "\\`")
+    .replace(/\[/g, "\\[");
+}
+
+// --- Safe text for HTML parse_mode ---
+function htmlEscape(s = "") {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// clickable mention + show @username (safe even with underscore)
+function nameMention(user) {
+  const name = htmlEscape(user?.first_name || user?.last_name || "User");
+  const uname = user?.username ? ` (@${htmlEscape(user.username)})` : "";
+  return `<a href="tg://user?id=${user.id}">${name}</a>${uname}`;
 }
 
 // -------------------- Yangon time helpers --------------------
@@ -300,7 +331,7 @@ bot.command("treasury", async (ctx) => {
   if (!isOwner(ctx, t)) return ctx.reply("⛔ Owner only.");
   const tr = await getTreasury();
   return ctx.reply(
-    `🏦 *Treasury Dashboard*\n━━━━━━━━━━━━━━\n• Total Supply: *${fmt(tr.totalSupply)}* ${COIN}\n• Owner Balance: *${fmt(tr.ownerBalance)}* ${COIN}\n• Timezone: *${TZ}*\n• Owner ID: *${tr.ownerUserId}*`,
+    `🏦 *Treasury Dashboard*\n━━━━━━━━━━━━━━\n• Total Supply: *${fmt(tr.totalSupply)}* ${COIN}\n• Owner Balance: *${fmt(tr.ownerBalance)}* ${COIN}\n• Timezone: *${mdEscape(TZ)}*\n• Owner ID: *${tr.ownerUserId}*`,
     { parse_mode: "Markdown" }
   );
 });
@@ -377,7 +408,7 @@ bot.command("dailyclaim", async (ctx) => {
     const updated = await getUser(ctx.from.id);
     return ctx.reply(
       `🎁 *Daily Claim Success*\n━━━━━━━━━━━━━━━━━━━━\n` +
-        `👤 ${displayName(ctx.from)}\n` +
+        `👤 ${mdEscape(displayName(ctx.from))}\n` +
         `➕ Reward: *${fmt(amount)}* ${COIN}\n` +
         `💼 Balance: *${fmt(updated?.balance)}* ${COIN}\n` +
         `🕒 ${formatYangon(now)} (Yangon)`,
@@ -392,7 +423,7 @@ bot.command("dailyclaim", async (ctx) => {
   }
 });
 
-// -------------------- .mybalance Pro+ (GROUP ONLY) --------------------
+// -------------------- .mybalance Pro+ (GROUP ONLY) — HTML mention safe --------------------
 function getBalanceRank(balance) {
   const b = Number(balance || 0);
 
@@ -404,7 +435,7 @@ function getBalanceRank(balance) {
   if (b >= 10001 && b <= 100000) return { title: "သိန်းကြွယ်သူဌေး အဆင့်", badge: "💰", color: "🟣" };
   if (b >= 100001 && b <= 1000000) return { title: "သန်းကြွယ်သူဌေးအကြီးစား အဆင့်", badge: "🏦", color: "🟡" };
   if (b >= 1000001 && b <= 50000000) return { title: "ကုဋေရှစ်ဆယ် သူဌေးကြီး အဆင့်", badge: "👑", color: "🟠" };
-  return { title: "ကုဋေရှစ်ဆယ် သူဌေးကြီးစား အဆင့်", badge: "👑✨", color: "🟥" };
+  return { title: "ကုဋေရှစ်ဆယ် သူဌေးအကြီးစား အဆင့်", badge: "👑✨", color: "🟥" };
 }
 
 function progressBar(current, min, max, blocks = 10) {
@@ -438,18 +469,18 @@ bot.hears(/^\.(mybalance|bal)\s*$/i, async (ctx) => {
   const bar = range.max === range.min ? "██████████" : progressBar(bal, range.min, range.max, 10);
 
   const msg =
-    `💼 *BIKA Pro+ Wallet*\n` +
+    `💼 <b>BIKA Pro+ Wallet</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `👤 ${displayName(ctx.from)}\n` +
-    `🪙 Balance: *${fmt(bal)}* ${COIN}\n` +
+    `👤 ${nameMention(ctx.from)}\n` +
+    `🪙 Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `${rank.badge} *Rank:* ${rank.title}\n` +
-    `${rank.color} *Progress:* \`${bar}\`\n` +
-    `📌 Range: *${fmt(range.min)}* → *${fmt(range.max)}* ${COIN}\n` +
+    `${htmlEscape(rank.badge)} <b>Rank:</b> ${htmlEscape(rank.title)}\n` +
+    `${htmlEscape(rank.color)} <b>Progress:</b> <code>${htmlEscape(bar)}</code>\n` +
+    `📌 Range: <b>${fmt(range.min)}</b> → <b>${fmt(range.max)}</b> ${COIN}\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
-    `🕒 ${formatYangon(new Date())} (Yangon)`;
+    `🕒 ${htmlEscape(formatYangon(new Date()))} (Yangon)`;
 
-  return ctx.reply(msg, { parse_mode: "Markdown" });
+  return ctx.reply(msg, { parse_mode: "HTML", disable_web_page_preview: true });
 });
 
 // -------------------- Gift (User -> User) --------------------
@@ -502,7 +533,7 @@ bot.command("gift", async (ctx) => {
     const updatedFrom = await getUser(fromTg.id);
 
     return ctx.reply(
-      `✅ *Gift Sent*\n━━━━━━━━━━━━━━\n🎁 To: *${toLabel}*\n💸 Amount: *${fmt(amount)}* ${COIN}\n💼 Your Balance: *${fmt(updatedFrom?.balance)}* ${COIN}`,
+      `✅ *Gift Sent*\n━━━━━━━━━━━━━━\n🎁 To: *${mdEscape(toLabel)}*\n💸 Amount: *${fmt(amount)}* ${COIN}\n💼 Your Balance: *${fmt(updatedFrom?.balance)}* ${COIN}`,
       { parse_mode: "Markdown" }
     );
   } catch (e) {
@@ -574,7 +605,7 @@ bot.command("addbalance", async (ctx) => {
     const tr = await getTreasury();
 
     return ctx.reply(
-      `✅ *Balance Added*\n━━━━━━━━━━━━━━\n👤 User: *${r.label}*\n➕ Amount: *${fmt(amount)}* ${COIN}\n💼 User Balance: *${fmt(u?.balance)}* ${COIN}\n🏦 Treasury Left: *${fmt(tr?.ownerBalance)}* ${COIN}`,
+      `✅ *Balance Added*\n━━━━━━━━━━━━━━\n👤 User: *${mdEscape(r.label)}*\n➕ Amount: *${fmt(amount)}* ${COIN}\n💼 User Balance: *${fmt(u?.balance)}* ${COIN}\n🏦 Treasury Left: *${fmt(tr?.ownerBalance)}* ${COIN}`,
       { parse_mode: "Markdown" }
     );
   } catch (e) {
@@ -608,7 +639,7 @@ bot.command("removebalance", async (ctx) => {
     const tr = await getTreasury();
 
     return ctx.reply(
-      `✅ *Balance Removed*\n━━━━━━━━━━━━━━\n👤 User: *${r.label}*\n➖ Amount: *${fmt(amount)}* ${COIN}\n💼 User Balance: *${fmt(u?.balance)}* ${COIN}\n🏦 Treasury Now: *${fmt(tr?.ownerBalance)}* ${COIN}`,
+      `✅ *Balance Removed*\n━━━━━━━━━━━━━━\n👤 User: *${mdEscape(r.label)}*\n➖ Amount: *${fmt(amount)}* ${COIN}\n💼 User Balance: *${fmt(u?.balance)}* ${COIN}\n🏦 Treasury Now: *${fmt(tr?.ownerBalance)}* ${COIN}`,
       { parse_mode: "Markdown" }
     );
   } catch (e) {
@@ -622,13 +653,14 @@ bot.command("removebalance", async (ctx) => {
 });
 
 // -------------------- Shop + Orders --------------------
+// ✅ Prices updated to your requested MMK-coin rates
 const SHOP_ITEMS = [
   { id: "dia11", name: "Diamonds 11 💎", price: 10000 },
-  { id: "dia22", name: "Diamonds 22 💎", price: 19500 },
-  { id: "dia33", name: "Diamonds 33 💎", price: 28500 },
+  { id: "dia22", name: "Diamonds 22 💎", price: 19000 },
+  { id: "dia33", name: "Diamonds 33 💎", price: 28000 },
   { id: "dia44", name: "Diamonds 44 💎", price: 37000 },
   { id: "dia55", name: "Diamonds 55 💎", price: 46000 },
-  { id: "wp1", name: "Weekly Pass 🎟️", price: 80000 },
+  { id: "wp1", name: "Weekly Pass 🎟️", price: 70000 },
 ];
 
 function shopKeyboard() {
@@ -1085,7 +1117,7 @@ async function renderAdminPanel(ctx, note = "") {
   const s = getAdminSession(ctx.from.id);
 
   const targetLine = s?.targetUserId
-    ? `👤 Target: *${s.targetLabel}*  (ID: \`${s.targetUserId}\`)`
+    ? `👤 Target: *${mdEscape(s.targetLabel)}*  (ID: \`${s.targetUserId}\`)`
     : `👤 Target: _Not set_`;
 
   const extra = note ? `\n${note}\n` : "\n";
@@ -1132,7 +1164,7 @@ async function askAmount(ctx, type) {
   const hint = type === "add" ? "Treasury → User" : "User → Treasury";
 
   return ctx.reply(
-    `${header}\n━━━━━━━━━━━━━━━━━━━━\n👤 Target: *${s.targetLabel}*\n🔁 Flow: _${hint}_\n━━━━━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: \`5000\``,
+    `${header}\n━━━━━━━━━━━━━━━━━━━━\n👤 Target: *${mdEscape(s.targetLabel)}*\n🔁 Flow: _${hint}_\n━━━━━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: \`5000\``,
     { parse_mode: "Markdown", reply_markup: { force_reply: true } }
   );
 }
@@ -1174,7 +1206,7 @@ bot.on("text", async (ctx, next) => {
     }
 
     setAdminSession(ctx.from.id, { mode: "idle", targetUserId, targetLabel });
-    return renderAdminPanel(ctx, `✅ Target set: *${targetLabel}*`);
+    return renderAdminPanel(ctx, `✅ Target set: *${mdEscape(targetLabel)}*`);
   }
 
   if (s.mode === "await_add_amount") {
@@ -1188,7 +1220,7 @@ bot.on("text", async (ctx, next) => {
       const tr = await getTreasury();
       return renderAdminPanel(
         ctx,
-        `✅ *Added Successfully*\n• User: *${s.targetLabel}*\n• Amount: *${fmt(amt)}* ${COIN}\n• User Balance: *${fmt(u?.balance)}* ${COIN}\n• Treasury Left: *${fmt(tr?.ownerBalance)}* ${COIN}`
+        `✅ *Added Successfully*\n• User: *${mdEscape(s.targetLabel)}*\n• Amount: *${fmt(amt)}* ${COIN}\n• User Balance: *${fmt(u?.balance)}* ${COIN}\n• Treasury Left: *${fmt(tr?.ownerBalance)}* ${COIN}`
       );
     } catch (e) {
       if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
@@ -1211,7 +1243,7 @@ bot.on("text", async (ctx, next) => {
       const tr = await getTreasury();
       return renderAdminPanel(
         ctx,
-        `✅ *Removed Successfully*\n• User: *${s.targetLabel}*\n• Amount: *${fmt(amt)}* ${COIN}\n• User Balance: *${fmt(u?.balance)}* ${COIN}\n• Treasury Now: *${fmt(tr?.ownerBalance)}* ${COIN}`
+        `✅ *Removed Successfully*\n• User: *${mdEscape(s.targetLabel)}*\n• Amount: *${fmt(amt)}* ${COIN}\n• User Balance: *${fmt(u?.balance)}* ${COIN}\n• Treasury Now: *${fmt(tr?.ownerBalance)}* ${COIN}`
       );
     } catch (e) {
       if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
@@ -1260,7 +1292,7 @@ bot.on("callback_query", async (ctx) => {
       await ctx.answerCbQuery("✅ Purchased!");
 
       return ctx.reply(
-        `✅ *Order Created*\n━━━━━━━━━━━━━━━━━━━━\n🧾 Item: *${item.name}*\n💳 Paid: *${fmt(item.price)}* ${COIN}\n💼 Balance: *${fmt(u?.balance)}* ${COIN}\n━━━━━━━━━━━━━━━━━━━━\n⏳ Status: *PENDING*`,
+        `✅ *Order Created*\n━━━━━━━━━━━━━━━━━━━━\n🧾 Item: *${mdEscape(item.name)}*\n💳 Paid: *${fmt(item.price)}* ${COIN}\n💼 Balance: *${fmt(u?.balance)}* ${COIN}\n━━━━━━━━━━━━━━━━━━━━\n⏳ Status: *PENDING*`,
         { parse_mode: "Markdown" }
       );
     } catch (e) {
@@ -1296,7 +1328,7 @@ bot.on("callback_query", async (ctx) => {
         .map((o, i) => {
           const who = o.username ? `@${o.username}` : String(o.userId);
           const when = formatYangon(new Date(o.createdAt));
-          return `${i + 1}. *${o.itemName}* — *${fmt(o.price)}* ${COIN}\n   👤 ${who}  •  ⏱ ${when}`;
+          return `${i + 1}. *${mdEscape(o.itemName)}* — *${fmt(o.price)}* ${COIN}\n   👤 ${mdEscape(who)}  •  ⏱ ${when}`;
         })
         .join("\n");
 
