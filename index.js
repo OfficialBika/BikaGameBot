@@ -1443,11 +1443,13 @@ let server = null;
 })();
 
 // ✅ FIX: Webhook mode မှာ bot.stop() က "Bot is not running!" ဖြစ်နိုင်လို့ safe shutdown
+let server = null;
+
 async function safeShutdown(signal) {
   console.log(`🧯 Shutdown signal: ${signal}`);
   try { if (server) server.close(); } catch (_) {}
   try { if (mongo) await mongo.close(); } catch (_) {}
-  // Don't call bot.stop() in webhook mode (it can throw)
+  // ❌ Webhook mode မှာ bot.stop() မခေါ်ပါနဲ့ (Bot is not running! ဖြစ်တတ်)
   process.exit(0);
 }
 
