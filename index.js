@@ -874,7 +874,7 @@ function calcMultiplier(a, b, c) {
 }
 function slotArt(a, b, c) {
   const box = (x) => (x === "BAR" ? "BAR" : x === "7" ? "7️⃣" : x);
-  return `┏━━━━━━━━━━━━━━━┓\n┃  ${box(a)}  |  ${box(b)}  |  ${box(c)}  ┃\n┗━━━━━━━━━━━━━━━┛`;
+  return `┏━━━━━━━━━━━━━━━━━┓\n┃  ${box(a)}  |  ${box(b)}  |  ${box(c)}  ┃\n┗━━━━━━━━━━━━━━━━━┛`;
 }
 function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
   const art = slotArt(a, b, c);
@@ -905,9 +905,9 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
 
   return (
     `<b>${escHtml(vibeHeader)}</b>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━\n` +
     `<pre>${escHtml(art)}</pre>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━\n` +
     `${escHtml(sound)} ${escHtml(note)}`
   );
 }
@@ -925,7 +925,7 @@ async function runSlotSpinAnimated(ctx, bet) {
   if (bet < SLOT.minBet || bet > SLOT.maxBet) {
     return replyHTML(
       ctx,
-      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`
+      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`
     );
   }
 
@@ -997,7 +997,7 @@ async function runSlotSpinAnimated(ctx, bet) {
         ctx,
         chatId,
         messageId,
-        `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
+        `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
       );
       lastSlotAt.set(userId, Date.now());
       return;
