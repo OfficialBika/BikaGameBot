@@ -785,9 +785,9 @@ function shopText(balance) {
   const lines = SHOP_ITEMS.map((x) => `• ${escHtml(x.name)} — <b>${fmt(x.price)}</b> ${COIN}`).join("\n");
   return (
     `🛒 <b>BIKA Pro Shop</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${lines}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `💼 Your Balance: <b>${fmt(balance)}</b> ${COIN}\n` +
     `Select an item below:`
   );
@@ -905,9 +905,9 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
 
   return (
     `<b>${escHtml(vibeHeader)}</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<pre>${escHtml(art)}</pre>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${escHtml(sound)} ${escHtml(note)}`
   );
 }
@@ -925,7 +925,7 @@ async function runSlotSpinAnimated(ctx, bet) {
   if (bet < SLOT.minBet || bet > SLOT.maxBet) {
     return replyHTML(
       ctx,
-      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`
+      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`
     );
   }
 
@@ -997,7 +997,7 @@ async function runSlotSpinAnimated(ctx, bet) {
         ctx,
         chatId,
         messageId,
-        `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
+        `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
       );
       lastSlotAt.set(userId, Date.now());
       return;
@@ -1011,9 +1011,9 @@ async function runSlotSpinAnimated(ctx, bet) {
 
   const finalMsg =
     `🎰 <b>BIKA Pro Slot</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━\n` +
     `<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━\n` +
     `<b>${escHtml(headline)}</b>\n` +
     `• Bet: <b>${fmt(bet)}</b> ${COIN}\n` +
     `• Payout: <b>${fmt(payout)}</b> ${COIN}\n` +
@@ -1120,7 +1120,7 @@ bot.command("rtp", async (ctx) => {
 
   const msg =
     `🧮 <b>Slot RTP Dashboard</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
     `🏦 Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
     `📦 Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
     `🎯 Base RTP: <b>${(base * 100).toFixed(2)}%</b>\n` +
@@ -1128,7 +1128,7 @@ bot.command("rtp", async (ctx) => {
     `🎰 777 Odds: <b>${escHtml(odds777)}</b>\n` +
     `🛡️ Cap: <b>${Math.round(SLOT.capPercent * 100)}%</b> of Treasury / spin\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
     `<b>Payout Table (Bet = 1,000)</b>\n` +
     `<pre>${escHtml(renderPayoutsTable())}</pre>`;
 
@@ -1162,14 +1162,14 @@ bot.command("setrtp", async (ctx) => {
 
   const msg =
     `✅ <b>RTP Updated (Owner)</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
     `🎯 Target RTP: <b>${(target * 100).toFixed(2)}%</b>\n` +
     `📌 Old Base RTP: <b>${(before * 100).toFixed(2)}%</b>\n` +
     `✅ New Base RTP: <b>${(after * 100).toFixed(2)}%</b>\n` +
     `🔧 Scale Factor: <b>${factor.toFixed(4)}</b>\n` +
     `🎰 777 Odds: <b>${escHtml(odds777)}</b>\n` +
     `🏦 Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
     `<b>Payout Table (Bet = 1,000)</b>\n` +
     `<pre>${escHtml(renderPayoutsTable())}</pre>`;
 
@@ -1231,13 +1231,13 @@ async function renderAdminPanel(ctx, note = "") {
 
   const text =
     `${ADMIN.panelTitle}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
     `🏦 Treasury Balance: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
     `📦 Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
     `${targetLine}\n` +
-    `━━━━━━━━━━━━━━━━━━━━` +
+    `━━━━━━━━━━━━━━━━━━` +
     `${extra}` +
     `Choose an action below:`;
 
@@ -1257,7 +1257,7 @@ async function askManualTarget(ctx) {
   setAdminSession(ctx.from.id, { mode: "await_target" });
   return replyHTML(
     ctx,
-    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
+    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1273,7 +1273,7 @@ async function askAmount(ctx, type) {
 
   return replyHTML(
     ctx,
-    `${header}\n━━━━━━━━━━━━━━━━━━━━\n👤 Target: <b>${escHtml(String(s.targetLabel))}</b>\n🔁 Flow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
+    `${header}\n━━━━━━━━━━━━━━━━━\n👤 Target: <b>${escHtml(String(s.targetLabel))}</b>\n🔁 Flow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1402,7 +1402,7 @@ bot.on("callback_query", async (ctx) => {
 
       return replyHTML(
         ctx,
-        `✅ <b>Order Created</b>\n━━━━━━━━━━━━━━━━━━━━\n🧾 Item: <b>${escHtml(item.name)}</b>\n💳 Paid: <b>${fmt(item.price)}</b> ${COIN}\n💼 Balance: <b>${fmt(u?.balance)}</b> ${COIN}\n━━━━━━━━━━━━━━━━━━━━\n⏳ Status: <b>PENDING</b>`
+        `✅ <b>Order Created</b>\n━━━━━━━━━━━━━━━━━\n🧾 Item: <b>${escHtml(item.name)}</b>\n💳 Paid: <b>${fmt(item.price)}</b> ${COIN}\n💼 Balance: <b>${fmt(u?.balance)}</b> ${COIN}\n━━━━━━━━━━━━━━━━━\n⏳ Status: <b>PENDING</b>`
       );
     } catch (e) {
       if (String(e?.message || e).includes("USER_INSUFFICIENT")) return ctx.answerCbQuery("Insufficient balance", { show_alert: true });
