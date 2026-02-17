@@ -49,7 +49,7 @@ let users, txs, orders, configCol;
 let TX_SUPPORTED = true;
 
 // -------------------- UI helpers (HTML) --------------------
-const COIN = "🪙";
+const COIN = "MMK";
 
 function escHtml(s) {
   return String(s ?? "")
