@@ -577,7 +577,9 @@ bot.hears(/^\.(mybalance|bal)\s*$/i, async (ctx) => {
     `🪙 Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `${rank.badge} <b>Rank:</b> ${escHtml(rank.title)}\n` +
+    
     `${rank.color} <b>Progress:</b> <code>${escHtml(bar)}</code>\n` +
+    
     `📌 Range: <b>${fmt(range.min)}</b> → <b>${fmt(range.max)}</b> ${COIN}\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)`;
@@ -814,7 +816,7 @@ const SLOT = {
       { s: "7", w: 5 },
     ],
     [
-      { s: "🍒", w: 3200 },
+      { s: "🍒", w: 3000 },
       { s: "🍋", w: 3200 },
       { s: "🍉", w: 2200 },
       { s: "🔔", w: 900 },
@@ -824,12 +826,12 @@ const SLOT = {
     ],
     [
       { s: "🍒", w: 3200 },
-      { s: "🍋", w: 3200 },
+      { s: "🍋", w: 2000 },
       { s: "🍉", w: 2200 },
       { s: "🔔", w: 900 },
       { s: "⭐", w: 450 },
       { s: "BAR", w: 45 },
-      { s: "7", w: 5 },
+      { s: "7", w: 3200 },
     ],
   ],
   payouts: {
@@ -871,8 +873,8 @@ function calcMultiplier(a, b, c) {
   return 0;
 }
 function slotArt(a, b, c) {
-  const box = (x) => (x === "BAR" ? "🟥BAR🟥" : x === "7" ? "7️⃣" : x);
-  return `┏━━━━━━━━━━━━━━┓\n┃  ${box(a)}  |  ${box(b)}  |  ${box(c)}  ┃\n┗━━━━━━━━━━━━━━┛`;
+  const box = (x) => (x === "BAR" ? "BAR" : x === "7" ? "7️⃣" : x);
+  return `┏━━━━━━━━━━━━━━━┓\n┃  ${box(a)}  |  ${box(b)}  |  ${box(c)}  ┃\n┗━━━━━━━━━━━━━━━┛`;
 }
 function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
   const art = slotArt(a, b, c);
