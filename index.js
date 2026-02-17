@@ -1,15 +1,15 @@
 /**
- * BIKA Pro Slot Bot — FINAL (Webhook, Render Web Service) — NO ERROR BUILD
- * -----------------------------------------------------------------------
+ * BIKA Pro Slot Bot — FINAL + PVP DICE (Webhook, Render Web Service) — NO ERROR BUILD
+ * ------------------------------------------------------------------------------
  * ✅ Express + Webhook + UptimeRobot GET /
  * ✅ MongoDB (transactions + safe fallback) + driver-safe findOneAndUpdate handling
  * ✅ Owner via ENV OWNER_ID
  * ✅ Treasury: /settotal, /treasury (owner only)
  * ✅ /start one-time bonus 300 (ONLY if treasury has balance)
  * ✅ /dailyclaim group only (Yangon day) 50~100 (ONLY if treasury has balance)
- * ✅ .slot (group) animated edit UI
- *    - ✅ Multi play supported: each user gets their own animation message (reply to their command)
- *    - ✅ MAX active slot concurrent = 15 (global), each user single active spin
+ * ✅ .slot <bet> (group) animated edit UI
+ *    - ✅ Multi play supported (each user gets their own reply animation message)
+ *    - ✅ Max active slots = 15 (global concurrent spins)
  * ✅ /setrtp 90 + /rtp payout pro table
  * ✅ /shop inline buy -> Orders
  *    - ✅ Order status: PENDING → PAID / DELIVERED / CANCELLED
@@ -20,6 +20,11 @@
  * ✅ /addbalance /removebalance (owner, reply/@/id)
  * ✅ /admin inline dashboard + guided input
  * ✅ .mybalance (group only) Pro+ wallet rank system
+ * ✅ NEW: PVP Dice Challenge (Group)
+ *    - ✅ Reply challenge: reply a user message then .dice <bet>
+ *    - ✅ Mention challenge: .dice @username <bet>
+ *    - ✅ Winner gets pot 98% (2% house cut)
+ *    - ✅ Final message shows “House cut: 2%”
  *
  * NOTE:
  * - Webhook mode on Render: DO NOT call bot.launch() and DO NOT call bot.stop()
@@ -37,7 +42,7 @@ const DB_NAME = process.env.DB_NAME || "bika_slot";
 const TZ = process.env.TZ || "Asia/Yangon";
 const OWNER_ID = process.env.OWNER_ID ? Number(process.env.OWNER_ID) : null;
 
-const PUBLIC_URL = process.env.PUBLIC_URL; // e.g. https://bikagamebot.onrender.com
+const PUBLIC_URL = process.env.PUBLIC_URL; // e.g. https://xxx.onrender.com
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET; // random string
 
 if (!BOT_TOKEN) throw new Error("Missing BOT_TOKEN");
@@ -66,7 +71,7 @@ function escHtml(s) {
 }
 
 function fmt(n) {
-  const x = typeof n === "string" ? Number(n.replace(/,/g, "")) : Number(n || 0);
+  const x = typeof n === "string" ? Number(String(n).replace(/,/g, "")) : Number(n || 0);
   return Number.isFinite(x) ? x.toLocaleString("en-US") : "0";
 }
 
@@ -90,11 +95,7 @@ function mentionHtml(tg) {
 
 async function replyHTML(ctx, html, extra = {}) {
   try {
-    return await ctx.reply(html, {
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-      ...extra,
-    });
+    return await ctx.reply(html, { parse_mode: "HTML", disable_web_page_preview: true, ...extra });
   } catch (e) {
     return ctx.reply(String(html).replace(/<[^>]+>/g, ""));
   }
@@ -343,14 +344,7 @@ async function treasuryPayToUser(toUserId, amount, meta = {}) {
 
     const txOpts = session ? { session } : {};
     await txs.insertOne(
-      {
-        type: meta.type || "treasury_pay",
-        fromUserId: "TREASURY",
-        toUserId,
-        amount: amt,
-        meta,
-        createdAt: new Date(),
-      },
+      { type: meta.type || "treasury_pay", fromUserId: "TREASURY", toUserId, amount: amt, meta, createdAt: new Date() },
       txOpts
     );
   });
@@ -374,22 +368,11 @@ async function userPayToTreasury(fromUserId, amount, meta = {}) {
     if (!uDoc) throw new Error("USER_INSUFFICIENT");
 
     const tOpts = session ? { session } : {};
-    await configCol.updateOne(
-      { key: "treasury" },
-      { $inc: { ownerBalance: amt }, $set: { updatedAt: new Date() } },
-      tOpts
-    );
+    await configCol.updateOne({ key: "treasury" }, { $inc: { ownerBalance: amt }, $set: { updatedAt: new Date() } }, tOpts);
 
     const txOpts = session ? { session } : {};
     await txs.insertOne(
-      {
-        type: meta.type || "treasury_receive",
-        fromUserId,
-        toUserId: "TREASURY",
-        amount: amt,
-        meta,
-        createdAt: new Date(),
-      },
+      { type: meta.type || "treasury_receive", fromUserId, toUserId: "TREASURY", amount: amt, meta, createdAt: new Date() },
       txOpts
     );
   });
@@ -428,7 +411,7 @@ async function transferBalance(fromUserId, toUserId, amount, meta = {}) {
 bot.command("settotal", async (ctx) => {
   const amount = parseAmount(ctx.message?.text || "");
   if (!amount || amount <= 0) {
-    return replyHTML(ctx, `🏦 <b>Treasury Settings</b>\n━━━━━━━━━━━━\nUsage: <code>/settotal 5000000</code>`);
+    return replyHTML(ctx, `🏦 <b>Treasury Settings</b>\n━━━━━━━━━━━━━━\nUsage: <code>/settotal 5000000</code>`);
   }
   const r = await setTotalSupply(ctx, amount);
   if (!r.ok) return replyHTML(ctx, "⛔ Owner only command.");
@@ -436,7 +419,7 @@ bot.command("settotal", async (ctx) => {
   const tt = await getTreasury();
   return replyHTML(
     ctx,
-    `🏦 <b>Treasury Initialized</b>\n━━━━━━━━━━━\n• Total Supply: <b>${fmt(tt.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tt.ownerBalance)}</b> ${COIN}`
+    `🏦 <b>Treasury Initialized</b>\n━━━━━━━━━━━━━━\n• Total Supply: <b>${fmt(tt.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tt.ownerBalance)}</b> ${COIN}`
   );
 });
 
@@ -446,7 +429,7 @@ bot.command("treasury", async (ctx) => {
   const tr = await getTreasury();
   return replyHTML(
     ctx,
-    `🏦 <b>Treasury Dashboard</b>\n━━━━━━━━━━━\n• Total Supply: <b>${fmt(tr.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tr.ownerBalance)}</b> ${COIN}\n• Timezone: <b>${escHtml(TZ)}</b>\n• Owner ID: <code>${tr.ownerUserId}</code>`
+    `🏦 <b>Treasury Dashboard</b>\n━━━━━━━━━━━━━━\n• Total Supply: <b>${fmt(tr.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tr.ownerBalance)}</b> ${COIN}\n• Timezone: <b>${escHtml(TZ)}</b>\n• Owner ID: <code>${tr.ownerUserId}</code>`
   );
 });
 
@@ -462,7 +445,7 @@ bot.start(async (ctx) => {
     if (toNum(tr?.ownerBalance) < START_BONUS) {
       return replyHTML(
         ctx,
-        `⚠️ <b>Treasury မသတ်မှတ်ရသေးပါ</b>\n━━━━━━━━━━━━━\nOwner က <code>/settotal 5000000</code> လုပ်ပြီးမှ Welcome Bonus ပေးနိုင်ပါတယ်။`
+        `⚠️ <b>Treasury မသတ်မှတ်ရသေးပါ</b>\n━━━━━━━━━━━━━━━━━━━━\nOwner က <code>/settotal 5000000</code> လုပ်ပြီးမှ Welcome Bonus ပေးနိုင်ပါတယ်။`
       );
     }
 
@@ -473,12 +456,12 @@ bot.start(async (ctx) => {
       const updated = await getUser(ctx.from.id);
       return replyHTML(
         ctx,
-        `🎉 <b>Welcome Bonus</b>\n━━━━━━━━━━━━━━\n` +
+        `🎉 <b>Welcome Bonus</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
           `👤 ${mentionHtml(ctx.from)}\n` +
           `➕ Bonus: <b>${fmt(START_BONUS)}</b> ${COIN}\n` +
           `💼 Balance: <b>${fmt(updated?.balance)}</b> ${COIN}\n` +
-          `━━━━━━━━━━━━━━\n` +
-          `Group Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.mybalance</code>\n• <code>/shop</code>`
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `Group Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.dice 100</code> (reply/mention)\n• <code>.mybalance</code>\n• <code>/shop</code>`
       );
     } catch (e) {
       if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
@@ -491,7 +474,7 @@ bot.start(async (ctx) => {
 
   return replyHTML(
     ctx,
-    `👋 <b>Welcome back</b>\n━━━━━━━━━━━━\nGroup Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.mybalance</code>\n• <code>/shop</code>`
+    `👋 <b>Welcome back</b>\n━━━━━━━━━━━━━━━━━━━━\nGroup Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.dice 100</code> (reply/mention)\n• <code>.mybalance</code>\n• <code>/shop</code>`
   );
 });
 
@@ -521,7 +504,7 @@ bot.command("dailyclaim", async (ctx) => {
   if (last && last >= todayStart) {
     return replyHTML(
       ctx,
-      `⏳ <b>Daily Claim</b>\n━━━━━━━━━━━━━━\nဒီနေ့ claim လုပ်ပြီးသားပါ။\nYangon time နဲ့ နေ့သစ်ဝင်ပြီးမှ ပြန် claim လုပ်နိုင်ပါတယ်။`
+      `⏳ <b>Daily Claim</b>\n━━━━━━━━━━━━━━━━━━━━\nဒီနေ့ claim လုပ်ပြီးသားပါ။\nYangon time နဲ့ နေ့သစ်ဝင်ပြီးမှ ပြန် claim လုပ်နိုင်ပါတယ်။`
     );
   }
 
@@ -538,7 +521,7 @@ bot.command("dailyclaim", async (ctx) => {
     const updated = await getUser(ctx.from.id);
     return replyHTML(
       ctx,
-      `🎁 <b>Daily Claim Success</b>\n━━━━━━━━━━━━━━\n` +
+      `🎁 <b>Daily Claim Success</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
         `👤 ${mentionHtml(ctx.from)}\n` +
         `➕ Reward: <b>${fmt(amount)}</b> ${COIN}\n` +
         `💼 Balance: <b>${fmt(updated?.balance)}</b> ${COIN}\n` +
@@ -597,16 +580,14 @@ bot.hears(/^\.(mybalance|bal)\s*$/i, async (ctx) => {
 
   const msg =
     `💼 <b>BIKA Pro+ Wallet</b>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
     `👤 ${mentionHtml(ctx.from)}\n` +
     `🪙 Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
     `${rank.badge} <b>Rank:</b> ${escHtml(rank.title)}\n` +
-    
     `${rank.color} <b>Progress:</b> <code>${escHtml(bar)}</code>\n` +
-    
     `📌 Range: <b>${fmt(range.min)}</b> → <b>${fmt(range.max)}</b> ${COIN}\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)`;
 
   return replyHTML(ctx, msg);
@@ -817,9 +798,9 @@ function shopText(balance) {
   const lines = SHOP_ITEMS.map((x) => `• ${escHtml(x.name)} — <b>${fmt(x.price)}</b> ${COIN}`).join("\n");
   return (
     `🛒 <b>BIKA Pro Shop</b>\n` +
-    `━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${lines}\n` +
-    `━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `💼 Your Balance: <b>${fmt(balance)}</b> ${COIN}\n` +
     `Select an item below:`
   );
@@ -840,14 +821,13 @@ function orderActionKeyboard(orderId) {
         { text: "📦 Mark DELIVERED", callback_data: `ORDER:DELIVERED:${orderId}` },
       ],
       [{ text: "❌ Cancel + Refund", callback_data: `ORDER:CANCEL:${orderId}` }],
-      [{ text: "⬅️ Back to Orders", callback_data: "ADMIN:ORDERS" }],
     ],
   };
 }
 
 function adminOrdersKeyboard(list) {
   const rows = [];
-  for (const o of list.slice(0, 10)) {
+  for (const o of list.slice(0, 6)) {
     const id = String(o._id);
     const label = `${o.itemName} • ${fmt(o.price)} ${COIN} • ${o.status}`;
     rows.push([{ text: `🧾 ${label}`, callback_data: `ORDER:OPEN:${id}` }]);
@@ -910,12 +890,12 @@ const SLOT = {
   },
 };
 
-// ✅ Max active slot
-const activeSlots = new Set(); // userId set
-const MAX_ACTIVE_SLOTS = 15; // max 15 concurrent spins
-
 const lastSlotAt = new Map();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ✅ Max active slots = 15
+const activeSlots = new Set(); // userId set
+const MAX_ACTIVE_SLOTS = 15;
 
 function weightedPick(items) {
   let total = 0;
@@ -978,31 +958,25 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
 
   return (
     `<b>${escHtml(vibeHeader)}</b>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
     `<pre>${escHtml(art)}</pre>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
     `${escHtml(sound)} ${escHtml(note)}`
   );
 }
 
-// ✅ Multi play: each user gets own animation message (reply)
-// ✅ MAX active slot: 15 concurrent; each user single active spin
 async function runSlotSpinAnimated(ctx, bet) {
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  // per-user active guard
+  // ✅ active slot limit guard (global) + prevent double-spin per user
   if (activeSlots.has(userId)) {
-    return replyHTML(ctx, "⏳ သင့် spin တစ်ခါ အပြီးသတ်မချင်း စောင့်ပါနော်…", {
-      reply_to_message_id: ctx.message?.message_id,
-    });
+    return replyHTML(ctx, "⏳ သင် spin လုပ်နေဆဲပါ။ ခဏစောင့်ပြီးမှ ထပ်စမ်းပါ။", { reply_to_message_id: ctx.message?.message_id });
   }
-
-  // global concurrent guard
   if (activeSlots.size >= MAX_ACTIVE_SLOTS) {
     return replyHTML(
       ctx,
-      `🚦 <b>Slot Queue ပြည့်နေပါတယ်</b>\n━━━━━━━━━━━━━━━\nလက်ရှိ တပြိုင်နက် <b>${MAX_ACTIVE_SLOTS}</b> ယောက်ထိပဲ ဆော့ခွင့်ရှိပါတယ်။\nခဏစောင့်ပြီး ပြန်စမ်းပေးပါ။`,
+      `🚦 <b>Server Busy</b>\n━━━━━━━━━━━━━━━━\nလတ်တလော spin အရမ်းများနေလို့ ခဏစောင့်ပြီးမှ ပြန်စမ်းပါ။\n(Max active spins: <b>${MAX_ACTIVE_SLOTS}</b>)`,
       { reply_to_message_id: ctx.message?.message_id }
     );
   }
@@ -1010,36 +984,29 @@ async function runSlotSpinAnimated(ctx, bet) {
   const last = lastSlotAt.get(userId) || 0;
   if (Date.now() - last < SLOT.cooldownMs) {
     const sec = Math.ceil((SLOT.cooldownMs - (Date.now() - last)) / 1000);
-    return replyHTML(ctx, `⏳ ခဏစောင့်ပါ… (${sec}s) နောက်တစ်ခါ spin လုပ်နိုင်ပါမယ်။`, {
-      reply_to_message_id: ctx.message?.message_id,
-    });
+    return replyHTML(ctx, `⏳ ခဏစောင့်ပါ… (${sec}s) နောက်တစ်ခါ spin လုပ်နိုင်ပါမယ်။`, { reply_to_message_id: ctx.message?.message_id });
   }
 
   if (bet < SLOT.minBet || bet > SLOT.maxBet) {
     return replyHTML(
       ctx,
-      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`,
+      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`,
       { reply_to_message_id: ctx.message?.message_id }
     );
   }
 
   activeSlots.add(userId);
-
-  let chatId = ctx.chat?.id;
-  let messageId = null;
-
   try {
     await ensureUser(ctx.from);
     await ensureTreasury();
 
-    // bet pay
     try {
       await userPayToTreasury(userId, bet, { type: "slot_bet", bet, chatId: ctx.chat?.id });
     } catch (e) {
       if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
         return replyHTML(
           ctx,
-          `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━━━━━\nSlot ဆော့ဖို့ လက်ကျန်ငွေ မလုံလောက်ပါ။\nDaily claim / gift / owner addbalance နဲ့ ငွေစုဆောင်းပြီးမှ ပြန်လာပါ။`,
+          `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━━━━━━━━━\nSlot ဆော့ဖို့ လက်ကျန်ငွေ မလုံလောက်ပါ။\nDaily claim / gift / addbalance နဲ့ ငွေစုဆောင်းပြီးမှ ပြန်လာပါ။`,
           { reply_to_message_id: ctx.message?.message_id }
         );
       }
@@ -1072,7 +1039,8 @@ async function runSlotSpinAnimated(ctx, bet) {
       reply_to_message_id: ctx.message?.message_id,
     });
 
-    messageId = sent?.message_id;
+    const chatId = ctx.chat?.id;
+    const messageId = sent?.message_id;
 
     const frames = [
       { a: randomSymbolFromReel(SLOT.reels[0]), b: randomSymbolFromReel(SLOT.reels[1]), c: randomSymbolFromReel(SLOT.reels[2]), note: "speed up!", vibe: "spin", delay: 650 },
@@ -1091,33 +1059,24 @@ async function runSlotSpinAnimated(ctx, bet) {
 
     for (const f of frames) {
       await sleep(f.delay);
-      if (chatId && messageId) await editHTML(ctx, chatId, messageId, spinFrame(f.a, f.b, f.c, f.note, f.vibe));
+      await editHTML(ctx, chatId, messageId, spinFrame(f.a, f.b, f.c, f.note, f.vibe));
     }
 
-    // payout
     if (payout > 0) {
       try {
-        await treasuryPayToUser(userId, payout, {
-          type: "slot_win",
-          bet,
-          payout,
-          combo: `${finalA},${finalB},${finalC}`,
-        });
+        await treasuryPayToUser(userId, payout, { type: "slot_win", bet, payout, combo: `${finalA},${finalB},${finalC}` });
       } catch (e) {
         console.error("slot payout error:", e);
         // refund bet if payout failed
         try {
           await treasuryPayToUser(userId, bet, { type: "slot_refund", reason: "payout_fail" });
         } catch (_) {}
-
-        if (chatId && messageId) {
-          await editHTML(
-            ctx,
-            chatId,
-            messageId,
-            `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
-          );
-        }
+        await editHTML(
+          ctx,
+          chatId,
+          messageId,
+          `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
+        );
         lastSlotAt.set(userId, Date.now());
         return;
       }
@@ -1138,7 +1097,7 @@ async function runSlotSpinAnimated(ctx, bet) {
       `• Payout: <b>${fmt(payout)}</b> ${COIN}\n` +
       `• Net: <b>${fmt(net)}</b> ${COIN}`;
 
-    if (chatId && messageId) await editHTML(ctx, chatId, messageId, finalMsg);
+    await editHTML(ctx, chatId, messageId, finalMsg);
   } finally {
     activeSlots.delete(userId);
   }
@@ -1263,7 +1222,7 @@ bot.command("setrtp", async (ctx) => {
 
   const parts = (ctx.message?.text || "").trim().split(/\s+/);
   if (parts.length < 2) {
-    return replyHTML(ctx, `⚙️ <b>Set RTP</b>\n━━━━━━━━━━━━━━━━\nUsage:\n• <code>/setrtp 90</code>\n• <code>/setrtp 0.90</code>`);
+    return replyHTML(ctx, `⚙️ <b>Set RTP</b>\n━━━━━━━━━━━━━━━━━━━━\nUsage:\n• <code>/setrtp 90</code>\n• <code>/setrtp 0.90</code>`);
   }
 
   let target = Number(parts[1]);
@@ -1346,34 +1305,25 @@ async function renderAdminPanel(ctx, note = "") {
   const s = getAdminSession(ctx.from.id);
 
   const targetLine = s?.targetUserId
-    ? `👤 Target: <b>${escHtml(String(s.targetLabel))}</b> (ID: <code>${s.targetUserId}</code>)`
+    ? `👤 Target: <b>${escHtml(String(s.targetLabel))}</b>  (ID: <code>${s.targetUserId}</code>)`
     : `👤 Target: <i>Not set</i>`;
 
   const extra = note ? `\n${note}\n` : "\n";
 
   const text =
     `${ADMIN.panelTitle}\n` +
-    `━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
     `🏦 Treasury Balance: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
     `📦 Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
-    `━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━\n` +
     `${targetLine}\n` +
-    `━━━━━━━━━━━━━━━` +
+    `━━━━━━━━━━━━━━━━━━` +
     `${extra}` +
     `Choose an action below:`;
 
   if (ctx.updateType === "callback_query") {
-    try {
-      return await ctx.editMessageText(text, {
-        parse_mode: "HTML",
-        reply_markup: adminKeyboard(),
-        disable_web_page_preview: true,
-      });
-    } catch (_) {
-      // if edit fails (old message), fallback new message
-      return replyHTML(ctx, text, { reply_markup: adminKeyboard() });
-    }
+    return ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: adminKeyboard(), disable_web_page_preview: true });
   }
   return replyHTML(ctx, text, { reply_markup: adminKeyboard() });
 }
@@ -1384,7 +1334,7 @@ async function askManualTarget(ctx) {
   setAdminSession(ctx.from.id, { mode: "await_target" });
   return replyHTML(
     ctx,
-    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
+    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1400,7 +1350,7 @@ async function askAmount(ctx, type) {
 
   return replyHTML(
     ctx,
-    `${header}\n━━━━━━━━━━━━━\n👤 Target: <b>${escHtml(String(s.targetLabel))}</b>\n🔁 Flow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
+    `${header}\n━━━━━━━━━━━━━━━━━\n👤 Target: <b>${escHtml(String(s.targetLabel))}</b>\n🔁 Flow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1538,23 +1488,268 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
   }
 }
 
-// -------------------- SINGLE Callback Query Router --------------------
+// -------------------- PVP DICE (Group) --------------------
+const DICE = {
+  minBet: 50,
+  maxBet: 200000,
+  expireMs: 60_000,
+  houseCutRate: 0.02, // 2%
+};
+
+const diceChallenges = new Map(); // id -> challenge
+const diceUserLock = new Map(); // userId -> challengeId (either challenger or opponent)
+
+function makeChallengeId() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`.toUpperCase();
+}
+
+function diceAcceptKeyboard(chId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Accept", callback_data: `DICE:ACCEPT:${chId}` },
+        { text: "❌ Decline", callback_data: `DICE:DECLINE:${chId}` },
+      ],
+    ],
+  };
+}
+
+function diceStartText(ch) {
+  const seconds = Math.max(1, Math.ceil((ch.expiresAt - Date.now()) / 1000));
+  const pot = ch.bet * 2;
+  const winnerGets = Math.floor(pot * (1 - DICE.houseCutRate));
+  return (
+    `🎲 <b>Dice Challenge</b>\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `👤 Challenger: ${ch.challengerLabel}\n` +
+    `🎯 Opponent: ${ch.opponentLabel}\n\n` +
+    `💰 Bet: <b>${fmt(ch.bet)}</b> ${COIN}\n` +
+    `🏦 House cut: <b>2%</b>\n` +
+    `🏆 Winner gets: <b>${fmt(winnerGets)}</b> ${COIN} (Pot)\n\n` +
+    `📌 ${ch.opponentLabel} က ✅ Accept ကိုနှိပ်ပြီး ပြိုင်ပွဲစပါမယ်။\n` +
+    `⏳ <b>${seconds}s</b> အတွင်း Accept မလုပ်ရင် အလိုအလျောက် Cancel ဖြစ်ပါမယ်။`
+  );
+}
+
+function diceInsufficientText(bet, bal) {
+  const need = toNum(bet);
+  const have = toNum(bal);
+  const lack = Math.max(0, need - have);
+  return (
+    `❌ <b>လက်ကျန်ငွေ မလုံလောက်ပါ</b>\n` +
+    `━━━━━━━━━━━━━━\n` +
+    `💰 Bet: <b>${fmt(need)}</b> ${COIN}\n` +
+    `💼 Your Balance: <b>${fmt(have)}</b> ${COIN}\n` +
+    `➕ Need More: <b>${fmt(lack)}</b> ${COIN}\n\n` +
+    `💡 slot ဆော့ပြီး coin စု → ပြန်လာနိုင်ပါတယ်။`
+  );
+}
+
+function diceAcceptedText(ch) {
+  const pot = ch.bet * 2;
+  const winnerGets = Math.floor(pot * (1 - DICE.houseCutRate));
+  return (
+    `✅ <b>Accepted!</b>\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `🎲 Dice ပြိုင်ပွဲ စတင်ပါပြီ…\n\n` +
+    `👤 ${ch.challengerLabel} vs ${ch.opponentLabel}\n` +
+    `💰 Pot: <b>${fmt(pot)}</b> ${COIN}\n` +
+    `🏦 House cut: <b>2%</b>\n` +
+    `🏆 Winner gets: <b>${fmt(winnerGets)}</b> ${COIN}\n\n` +
+    `⌛ ကံစမ်းနေပါပြီ… 🎲`
+  );
+}
+
+function diceFinalWinnerText({ ch, d1, d2, winnerLabel, payout, cut, pot }) {
+  return (
+    `🏁 <b>Dice Result</b>\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `🎲 ${ch.challengerLabel}: <b>${d1}</b>\n` +
+    `🎲 ${ch.opponentLabel}: <b>${d2}</b>\n\n` +
+    `🏆 Winner: ${winnerLabel}\n` +
+    `💰 Pot: <b>${fmt(pot)}</b> ${COIN}\n` +
+    `🏦 House cut: <b>2%</b>  (= ${fmt(cut)} ${COIN})\n` +
+    `✅ Winner gets: <b>${fmt(payout)}</b> ${COIN}\n\n` +
+    `🎉 Congratulations!`
+  );
+}
+
+function diceFinalDrawText(ch, d1, d2) {
+  return (
+    `🤝 <b>Draw!</b>\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `🎲 ${ch.challengerLabel}: <b>${d1}</b>\n` +
+    `🎲 ${ch.opponentLabel}: <b>${d2}</b>\n\n` +
+    `✅ Result: <b>REFUND</b>\n` +
+    `💰 Bet ကို နှစ်ယောက်လုံး ပြန်ပေးပြီးပါပြီ။`
+  );
+}
+
+async function refundDiceChallenger(ch, reason = "expired_or_declined") {
+  try {
+    await treasuryPayToUser(ch.challengerId, ch.bet, { type: "dice_refund", reason, challengeId: ch.id });
+  } catch (e) {
+    console.error("dice refund challenger error:", e);
+  }
+}
+
+function clearDiceLocks(ch) {
+  diceChallenges.delete(ch.id);
+  if (diceUserLock.get(ch.challengerId) === ch.id) diceUserLock.delete(ch.challengerId);
+  if (diceUserLock.get(ch.opponentId) === ch.id) diceUserLock.delete(ch.opponentId);
+}
+
+// Cleanup expired challenges
+setInterval(async () => {
+  const now = Date.now();
+  for (const ch of diceChallenges.values()) {
+    if (ch.status !== "PENDING") continue;
+    if (now > ch.expiresAt) {
+      ch.status = "EXPIRED";
+      await refundDiceChallenger(ch, "expired");
+      try {
+        await bot.telegram.editMessageText(ch.chatId, ch.messageId, undefined, `⏳ <b>Challenge Expired</b>\n━━━━━━━━━━━━━━━━\nဒီ Challenge က သက်တမ်းကုန်သွားပါပြီ။\n💰 Challenger bet ကို refund ပြန်ပေးပြီးပါပြီ။`, {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+        });
+      } catch (_) {}
+      clearDiceLocks(ch);
+    }
+  }
+}, 7_000);
+
+// Command: .dice (reply) <bet> OR .dice @username <bet>
+bot.hears(/^\.(dice)\s*(.*)$/i, async (ctx) => {
+  if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.dice</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
+
+  const text = (ctx.message?.text || "").trim();
+  const parts = text.split(/\s+/).filter(Boolean);
+
+  // detect bet
+  const bet = parseAmount(text);
+  if (!bet || bet <= 0) {
+    return replyHTML(
+      ctx,
+      `🎲 <b>.dice အသုံးပြုနည်း</b>\n━━━━━━━━━━━━━━━━\n✅ Reply Challenge:\n• အခြား user ရဲ့ message ကို Reply လုပ်ပြီး <code>.dice 100</code>\n\n✅ Mention Challenge:\n• <code>.dice @username 100</code>\n\n📌 Opponent က ✅ Accept နှိပ်မှ စတင်ပါမယ်။`,
+      { reply_to_message_id: ctx.message?.message_id }
+    );
+  }
+
+  const betInt = Math.floor(bet);
+  if (betInt < DICE.minBet || betInt > DICE.maxBet) {
+    return replyHTML(
+      ctx,
+      `🎲 <b>Dice Challenge</b>\n━━━━━━━━━━━━━━━━\nBet range: <b>${fmt(DICE.minBet)}</b> → <b>${fmt(DICE.maxBet)}</b> ${COIN}\nUsage:\n• Reply + <code>.dice 100</code>\n• Mention <code>.dice @username 100</code>`,
+      { reply_to_message_id: ctx.message?.message_id }
+    );
+  }
+
+  const challenger = ctx.from;
+  if (!challenger?.id) return;
+
+  // lock check
+  if (diceUserLock.has(challenger.id)) {
+    return replyHTML(ctx, "⛔ သင့်မှာ Dice Challenge တစ်ခု လက်ရှိရှိနေပါပြီ။ အရင်ဆုံး အဲ့တာကို ပြီးစီး/Cancel လုပ်ပါ။", {
+      reply_to_message_id: ctx.message?.message_id,
+    });
+  }
+
+  // resolve opponent from reply or mention
+  let opponentId = null;
+  let opponentLabel = null;
+
+  const replyFrom = ctx.message?.reply_to_message?.from;
+  if (replyFrom?.id) {
+    if (replyFrom.is_bot) return replyHTML(ctx, "🤖 Bot ကို Challenge မလုပ်နိုင်ပါ။", { reply_to_message_id: ctx.message?.message_id });
+    if (replyFrom.id === challenger.id) return replyHTML(ctx, "😅 ကိုယ့်ကိုကိုယ် Challenge မလုပ်နိုင်ပါဘူးနော်။", { reply_to_message_id: ctx.message?.message_id });
+    opponentId = replyFrom.id;
+    opponentLabel = mentionHtml(replyFrom);
+    await ensureUser(replyFrom);
+  } else {
+    const uname = parseMentionUsername(text);
+    if (!uname) {
+      return replyHTML(
+        ctx,
+        `🎲 <b>.dice အသုံးပြုနည်း</b>\n━━━━━━━━━━━━━━━━\n✅ Reply Challenge:\n• Reply လုပ်ပြီး <code>.dice 100</code>\n\n✅ Mention Challenge:\n• <code>.dice @username 100</code>`,
+        { reply_to_message_id: ctx.message?.message_id }
+      );
+    }
+    const u = await getUserByUsername(uname);
+    if (!u) {
+      return replyHTML(ctx, "⚠️ ဒီ @username ကို မတွေ့ပါ။ (သူ bot ကို /start လုပ်ထားရမယ်) သို့ Reply နဲ့ challenge လုပ်ပါ။", {
+        reply_to_message_id: ctx.message?.message_id,
+      });
+    }
+    if (u.userId === challenger.id) {
+      return replyHTML(ctx, "😅 ကိုယ့်ကိုကိုယ် Challenge မလုပ်နိုင်ပါဘူးနော်။", { reply_to_message_id: ctx.message?.message_id });
+    }
+    opponentId = u.userId;
+    opponentLabel = `@${escHtml(uname)}`;
+  }
+
+  if (!opponentId) return;
+
+  if (diceUserLock.has(opponentId)) {
+    return replyHTML(ctx, "🚫 Opponent က အခြား Dice Challenge တစ်ခုနဲ့ မအားသေးပါ။ ခဏနောက်မှ ပြန်စမ်းပါ။", {
+      reply_to_message_id: ctx.message?.message_id,
+    });
+  }
+
+  await ensureTreasury();
+  await ensureUser(challenger);
+
+  // challenger must pay bet upfront -> treasury (so opponent can't accept then challenger has no money later)
+  try {
+    await userPayToTreasury(challenger.id, betInt, { type: "dice_bet_lock", bet: betInt, opponentId, chatId: ctx.chat?.id });
+  } catch (e) {
+    if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
+      const u = await getUser(challenger.id);
+      return replyHTML(ctx, diceInsufficientText(betInt, u?.balance), { reply_to_message_id: ctx.message?.message_id });
+    }
+    console.error("dice challenger pay error:", e);
+    return replyHTML(ctx, "⚠️ Error ဖြစ်သွားပါတယ်။", { reply_to_message_id: ctx.message?.message_id });
+  }
+
+  // create challenge
+  const chId = makeChallengeId();
+  const ch = {
+    id: chId,
+    status: "PENDING",
+    chatId: ctx.chat.id,
+    createdAt: new Date(),
+    expiresAt: Date.now() + DICE.expireMs,
+    challengerId: challenger.id,
+    challengerLabel: mentionHtml(challenger),
+    opponentId,
+    opponentLabel,
+    bet: betInt,
+  };
+
+  const msg = await replyHTML(ctx, diceStartText(ch), {
+    reply_markup: diceAcceptKeyboard(chId),
+    reply_to_message_id: ctx.message?.message_id,
+  });
+
+  ch.messageId = msg?.message_id;
+
+  diceChallenges.set(chId, ch);
+  diceUserLock.set(challenger.id, chId);
+  diceUserLock.set(opponentId, chId);
+});
+
+// -------------------- Callback Query (Shop + Admin + Orders + Dice) --------------------
 bot.on("callback_query", async (ctx) => {
   const data = ctx.callbackQuery?.data || "";
 
-  // ---------- SHOP ----------
+  // ---- SHOP ----
   if (data === "SHOP:REFRESH") {
     const u = await ensureUser(ctx.from);
     await ctx.answerCbQuery("Refreshed");
-    try {
-      return await ctx.editMessageText(shopText(u.balance), {
-        parse_mode: "HTML",
-        reply_markup: shopKeyboard(),
-        disable_web_page_preview: true,
-      });
-    } catch (_) {
-      return replyHTML(ctx, shopText(u.balance), { reply_markup: shopKeyboard() });
-    }
+    return ctx.editMessageText(shopText(u.balance), {
+      parse_mode: "HTML",
+      reply_markup: shopKeyboard(),
+      disable_web_page_preview: true,
+    });
   }
 
   if (data.startsWith("BUY:")) {
@@ -1622,12 +1817,13 @@ bot.on("callback_query", async (ctx) => {
             `• Shop: <code>/shop</code>`
         );
       }
+
       console.error("BUY error:", e);
       return ctx.answerCbQuery("Error", { show_alert: true });
     }
   }
 
-  // ---------- ADMIN ----------
+  // ---- ADMIN ----
   if (data.startsWith("ADMIN:")) {
     const t = await ensureTreasury();
     if (!isOwner(ctx, t)) {
@@ -1693,22 +1889,18 @@ bot.on("callback_query", async (ctx) => {
         `━━━━━━━━━━━━━━━\n` +
         `Tap an order below to manage:`;
 
-      try {
-        return await ctx.editMessageText(panel, {
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-          reply_markup: adminOrdersKeyboard(list),
-        });
-      } catch (_) {
-        return replyHTML(ctx, panel, { reply_markup: adminOrdersKeyboard(list) });
-      }
+      return ctx.editMessageText(panel, {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: adminOrdersKeyboard(list),
+      });
     }
 
     await ctx.answerCbQuery("OK");
     return;
   }
 
-  // ---------- ORDER ACTIONS (Owner only) ----------
+  // ---- ORDER ACTIONS (Owner only) ----
   if (data.startsWith("ORDER:")) {
     const t = await ensureTreasury();
     if (!isOwner(ctx, t)) {
@@ -1726,26 +1918,20 @@ bot.on("callback_query", async (ctx) => {
       try {
         oid = new ObjectId(id);
       } catch (_) {
-        return ctx.answerCbQuery("Invalid Order ID", { show_alert: true });
+        return ctx.editMessageText("Invalid Order ID", { reply_markup: adminKeyboard() });
       }
       const o = await orders.findOne({ _id: oid });
-      if (!o) return ctx.answerCbQuery("Order not found", { show_alert: true });
-
+      if (!o) return ctx.editMessageText("Order not found", { reply_markup: adminKeyboard() });
       const text = orderReceiptText(o) + "\nSelect action:";
-      try {
-        return await ctx.editMessageText(text, {
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-          reply_markup: orderActionKeyboard(String(o._id)),
-        });
-      } catch (_) {
-        return replyHTML(ctx, text, { reply_markup: orderActionKeyboard(String(o._id)) });
-      }
+      return ctx.editMessageText(text, {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: orderActionKeyboard(String(o._id)),
+      });
     }
 
     if (action === "PAID" || action === "DELIVERED" || action === "CANCEL") {
       await ctx.answerCbQuery("Working...");
-
       let oid = null;
       try {
         oid = new ObjectId(id);
@@ -1756,7 +1942,6 @@ bot.on("callback_query", async (ctx) => {
       const o = await orders.findOne({ _id: oid });
       if (!o) return ctx.answerCbQuery("Order not found", { show_alert: true });
 
-      // ---- PAID ----
       if (action === "PAID") {
         if (o.status === ORDER_STATUS.CANCELLED || o.status === ORDER_STATUS.DELIVERED) {
           return ctx.answerCbQuery("Already closed", { show_alert: true });
@@ -1764,10 +1949,7 @@ bot.on("callback_query", async (ctx) => {
         const now = new Date();
         await orders.updateOne(
           { _id: oid },
-          {
-            $set: { status: ORDER_STATUS.PAID, updatedAt: now },
-            $push: { history: { status: ORDER_STATUS.PAID, at: now, by: ctx.from.id } },
-          }
+          { $set: { status: ORDER_STATUS.PAID, updatedAt: now }, $push: { history: { status: ORDER_STATUS.PAID, at: now, by: ctx.from.id } } }
         );
         const updated = await orders.findOne({ _id: oid });
         await notifyUserOrderUpdate(updated, "✅ Admin က order ကို <b>PAID</b> လို့ confirm လုပ်ပြီးပါပြီ။");
@@ -1779,17 +1961,13 @@ bot.on("callback_query", async (ctx) => {
         });
       }
 
-      // ---- DELIVERED ----
       if (action === "DELIVERED") {
         if (o.status === ORDER_STATUS.CANCELLED) return ctx.answerCbQuery("Cancelled order", { show_alert: true });
 
         const now = new Date();
         await orders.updateOne(
           { _id: oid },
-          {
-            $set: { status: ORDER_STATUS.DELIVERED, updatedAt: now },
-            $push: { history: { status: ORDER_STATUS.DELIVERED, at: now, by: ctx.from.id } },
-          }
+          { $set: { status: ORDER_STATUS.DELIVERED, updatedAt: now }, $push: { history: { status: ORDER_STATUS.DELIVERED, at: now, by: ctx.from.id } } }
         );
         const updated = await orders.findOne({ _id: oid });
         await notifyUserOrderUpdate(updated, "📦 Order ကို <b>DELIVERED</b> လုပ်ပြီးပါပြီ။ ကျေးဇူးတင်ပါတယ်။");
@@ -1798,23 +1976,16 @@ bot.on("callback_query", async (ctx) => {
         return ctx.editMessageText(text, {
           parse_mode: "HTML",
           disable_web_page_preview: true,
-          reply_markup: {
-            inline_keyboard: [[{ text: "⬅️ Back to Orders", callback_data: "ADMIN:ORDERS" }]],
-          },
+          reply_markup: { inline_keyboard: [[{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]] },
         });
       }
 
-      // ---- CANCEL + REFUND ----
       if (action === "CANCEL") {
         if (o.status === ORDER_STATUS.CANCELLED) return ctx.answerCbQuery("Already cancelled", { show_alert: true });
         if (o.status === ORDER_STATUS.DELIVERED) return ctx.answerCbQuery("Already delivered", { show_alert: true });
 
         try {
-          await treasuryPayToUser(o.userId, o.price, {
-            type: "order_refund",
-            orderId: String(o._id),
-            itemId: o.itemId,
-          });
+          await treasuryPayToUser(o.userId, o.price, { type: "order_refund", orderId: String(o._id), itemId: o.itemId });
         } catch (e) {
           if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
             return ctx.answerCbQuery("Treasury insufficient for refund", { show_alert: true });
@@ -1826,27 +1997,196 @@ bot.on("callback_query", async (ctx) => {
         const now = new Date();
         await orders.updateOne(
           { _id: oid },
-          {
-            $set: { status: ORDER_STATUS.CANCELLED, updatedAt: now },
-            $push: { history: { status: ORDER_STATUS.CANCELLED, at: now, by: ctx.from.id } },
-          }
+          { $set: { status: ORDER_STATUS.CANCELLED, updatedAt: now }, $push: { history: { status: ORDER_STATUS.CANCELLED, at: now, by: ctx.from.id } } }
         );
 
         const updated = await orders.findOne({ _id: oid });
-        await notifyUserOrderUpdate(
-          updated,
-          `❌ Admin က order ကို <b>CANCELLED</b> လုပ်ပြီး refund <b>${fmt(updated.price)}</b> ${COIN} ပြန်ပေးပြီးပါပြီ။`
-        );
+        await notifyUserOrderUpdate(updated, `❌ Admin က order ကို <b>CANCELLED</b> လုပ်ပြီး refund <b>${fmt(updated.price)}</b> ${COIN} ပြန်ပေးပြီးပါပြီ။`);
 
         const text = orderReceiptText(updated) + "\n❌ Cancelled + Refunded.";
         return ctx.editMessageText(text, {
           parse_mode: "HTML",
           disable_web_page_preview: true,
-          reply_markup: {
-            inline_keyboard: [[{ text: "⬅️ Back to Orders", callback_data: "ADMIN:ORDERS" }]],
-          },
+          reply_markup: { inline_keyboard: [[{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]] },
         });
       }
+    }
+
+    await ctx.answerCbQuery("OK");
+    return;
+  }
+
+  // ---- DICE PVP ----
+  if (data.startsWith("DICE:")) {
+    const parts = data.split(":");
+    const action = parts[1];
+    const chId = parts[2];
+
+    const ch = diceChallenges.get(chId);
+    if (!ch) {
+      await ctx.answerCbQuery("⏳ ဒီ Challenge က သက်တမ်းကုန်/ပြီးသွားပြီပါ။", { show_alert: true });
+      return;
+    }
+
+    // opponent-only press guard
+    const presserId = ctx.from?.id;
+    const isOpponent = presserId === ch.opponentId;
+    const isChallenger = presserId === ch.challengerId;
+
+    if (!isOpponent && !isChallenger) {
+      await ctx.answerCbQuery(
+        `⛔ ဒီခလုတ်ကို သင်မနှိပ်နိုင်ပါဘူး။\n\nဒီ Dice Challenge ကို “Opponent” အတွက်ပဲ ဖွင့်ထားတာပါ။\n📌 Challenger/Opponent မဟုတ်တဲ့သူတွေ ဝင်မနှိပ်နိုင်ပါ။`,
+        { show_alert: true }
+      );
+      return;
+    }
+
+    // expired guard
+    if (ch.status !== "PENDING" || Date.now() > ch.expiresAt) {
+      ch.status = "EXPIRED";
+      await refundDiceChallenger(ch, "expired");
+      try {
+        await ctx.editMessageText(`⏳ <b>Challenge Expired</b>\n━━━━━━━━━━━━━━━━\nဒီ Challenge က သက်တမ်းကုန်သွားပါပြီ။\n💰 Challenger bet ကို refund ပြန်ပေးပြီးပါပြီ။`, {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+        });
+      } catch (_) {}
+      clearDiceLocks(ch);
+      await ctx.answerCbQuery("Expired", { show_alert: true });
+      return;
+    }
+
+    if (action === "DECLINE") {
+      // only opponent can decline (challenger decline also allowed, but treat same)
+      ch.status = "DECLINED";
+      await refundDiceChallenger(ch, "declined");
+      await ctx.answerCbQuery("Declined");
+      try {
+        await ctx.editMessageText(
+          `❌ <b>Challenge Declined</b>\n━━━━━━━━━━━━━━━━\n🎲 Dice Challenge ကို decline လုပ်လိုက်ပါတယ်။\n💰 Challenger bet ကို refund ပြန်ပေးပြီးပါပြီ။`,
+          { parse_mode: "HTML", disable_web_page_preview: true }
+        );
+      } catch (_) {}
+      clearDiceLocks(ch);
+      return;
+    }
+
+    if (action === "ACCEPT") {
+      if (!isOpponent) {
+        await ctx.answerCbQuery("⛔ Opponent ပဲ Accept လုပ်နိုင်ပါတယ်။", { show_alert: true });
+        return;
+      }
+
+      // opponent pay bet
+      await ensureTreasury();
+      await ensureUser(ctx.from);
+
+      try {
+        await userPayToTreasury(ch.opponentId, ch.bet, { type: "dice_bet_lock", bet: ch.bet, opponentId: ch.challengerId, chatId: ch.chatId });
+      } catch (e) {
+        if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
+          const u = await getUser(ch.opponentId);
+          const bal = toNum(u?.balance);
+          const lack = Math.max(0, ch.bet - bal);
+          await ctx.answerCbQuery(`❌ မလုံလောက်ပါ (${fmt(lack)} ${COIN} လိုနေပါသေးတယ်)`, { show_alert: true });
+
+          // also edit message for pretty info
+          try {
+            await ctx.editMessageText(diceStartText(ch) + `\n\n❌ <b>Opponent Balance မလုံလောက်ပါ</b>`, {
+              parse_mode: "HTML",
+              disable_web_page_preview: true,
+              reply_markup: diceAcceptKeyboard(ch.id),
+            });
+          } catch (_) {}
+          return;
+        }
+        console.error("dice opponent pay error:", e);
+        await ctx.answerCbQuery("Error", { show_alert: true });
+        return;
+      }
+
+      ch.status = "RUNNING";
+      await ctx.answerCbQuery("✅ Accepted!");
+
+      // show accepted message
+      try {
+        await ctx.editMessageText(diceAcceptedText(ch), { parse_mode: "HTML", disable_web_page_preview: true });
+      } catch (_) {}
+
+      // roll dice (telegram dice animation messages)
+      const dMsg1 = await bot.telegram.sendDice(ch.chatId, { reply_to_message_id: ch.messageId });
+      await sleep(900);
+      const dMsg2 = await bot.telegram.sendDice(ch.chatId, { reply_to_message_id: ch.messageId });
+
+      // Telegram dice value available in message.dice.value (1..6)
+      const d1 = dMsg1?.dice?.value || randInt(1, 6);
+      const d2 = dMsg2?.dice?.value || randInt(1, 6);
+
+      const pot = ch.bet * 2;
+      const cut = Math.floor(pot * DICE.houseCutRate);
+      const payout = pot - cut;
+
+      // Determine winner / draw
+      if (d1 === d2) {
+        ch.status = "DRAW";
+        // refund both
+        try {
+          await treasuryPayToUser(ch.challengerId, ch.bet, { type: "dice_refund", reason: "draw", challengeId: ch.id });
+        } catch (e) {
+          console.error("dice refund challenger draw error:", e);
+        }
+        try {
+          await treasuryPayToUser(ch.opponentId, ch.bet, { type: "dice_refund", reason: "draw", challengeId: ch.id });
+        } catch (e) {
+          console.error("dice refund opponent draw error:", e);
+        }
+
+        await bot.telegram.sendMessage(ch.chatId, diceFinalDrawText(ch, d1, d2), {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_to_message_id: ch.messageId,
+        });
+
+        clearDiceLocks(ch);
+        return;
+      }
+
+      const winnerIsChallenger = d1 > d2;
+      const winnerId = winnerIsChallenger ? ch.challengerId : ch.opponentId;
+      const winnerLabel = winnerIsChallenger ? ch.challengerLabel : ch.opponentLabel;
+
+      // pay winner from treasury (house keeps cut inside treasury balance)
+      try {
+        await treasuryPayToUser(winnerId, payout, { type: "dice_pvp_win", challengeId: ch.id, bet: ch.bet, pot, cut, payout, d1, d2 });
+      } catch (e) {
+        console.error("dice payout error:", e);
+        // if payout fails, do safest: refund both bets
+        try {
+          await treasuryPayToUser(ch.challengerId, ch.bet, { type: "dice_refund", reason: "payout_fail", challengeId: ch.id });
+        } catch (_) {}
+        try {
+          await treasuryPayToUser(ch.opponentId, ch.bet, { type: "dice_refund", reason: "payout_fail", challengeId: ch.id });
+        } catch (_) {}
+
+        await bot.telegram.sendMessage(
+          ch.chatId,
+          `⚠️ <b>Payout Error</b>\n━━━━━━━━━━━━━━━━\nPayout error ဖြစ်လို့ bet နှစ်ယောက်လုံး refund ပြန်ပေးလိုက်ပါတယ်။`,
+          { parse_mode: "HTML", disable_web_page_preview: true, reply_to_message_id: ch.messageId }
+        );
+
+        clearDiceLocks(ch);
+        return;
+      }
+
+      ch.status = "FINISHED";
+      await bot.telegram.sendMessage(
+        ch.chatId,
+        diceFinalWinnerText({ ch, d1, d2, winnerLabel, payout, cut, pot }),
+        { parse_mode: "HTML", disable_web_page_preview: true, reply_to_message_id: ch.messageId }
+      );
+
+      clearDiceLocks(ch);
+      return;
     }
 
     await ctx.answerCbQuery("OK");
@@ -1914,3 +2254,4 @@ async function safeShutdown(signal) {
 
 process.once("SIGINT", () => safeShutdown("SIGINT"));
 process.once("SIGTERM", () => safeShutdown("SIGTERM"));
+
