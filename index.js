@@ -1,8 +1,8 @@
 /**
- * BIKA Pro Slot Bot — FINAL (Webhook, Render Web Service)
- * ------------------------------------------------------
+ * BIKA Pro Slot Bot — FINAL (Webhook, Render Web Service) — NO ERROR BUILD
+ * -----------------------------------------------------------------------
  * ✅ Express + Webhook + UptimeRobot GET /
- * ✅ MongoDB (transactions + safe fallback)
+ * ✅ MongoDB (transactions + safe fallback) + driver-safe findOneAndUpdate handling
  * ✅ Owner via ENV OWNER_ID
  * ✅ Treasury: /settotal, /treasury (owner only)
  * ✅ /start one-time bonus 300 (ONLY if treasury has balance)
@@ -14,6 +14,9 @@
  * ✅ /addbalance /removebalance (owner, reply/@/id)
  * ✅ /admin inline dashboard + guided input
  * ✅ .mybalance (group only) Pro+ wallet rank system
+ *
+ * NOTE:
+ * - Webhook mode on Render: DO NOT call bot.launch() and DO NOT call bot.stop()
  */
 
 require("dotenv").config();
@@ -28,7 +31,7 @@ const DB_NAME = process.env.DB_NAME || "bika_slot";
 const TZ = process.env.TZ || "Asia/Yangon";
 const OWNER_ID = process.env.OWNER_ID ? Number(process.env.OWNER_ID) : null;
 
-const PUBLIC_URL = process.env.PUBLIC_URL;        // e.g. https://bikagamebot.onrender.com
+const PUBLIC_URL = process.env.PUBLIC_URL; // e.g. https://bikagamebot.onrender.com
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET; // random string
 
 if (!BOT_TOKEN) throw new Error("Missing BOT_TOKEN");
@@ -45,28 +48,6 @@ let users, txs, orders, configCol;
 
 let TX_SUPPORTED = true;
 
-async function connectMongo() {
-  mongo = new MongoClient(MONGO_URI, {});
-  await mongo.connect();
-  db = mongo.db(DB_NAME);
-
-  users = db.collection("users");
-  txs = db.collection("transactions");
-  orders = db.collection("orders");
-  configCol = db.collection("config");
-
-  await users.createIndex({ userId: 1 }, { unique: true });
-  await users.createIndex({ username: 1 }, { sparse: true });
-
-  await txs.createIndex({ createdAt: -1 });
-  await txs.createIndex({ type: 1, createdAt: -1 });
-
-  await orders.createIndex({ status: 1, createdAt: -1 });
-  await configCol.createIndex({ key: 1 }, { unique: true });
-
-  console.log("✅ Mongo connected");
-}
-
 // -------------------- UI helpers (HTML) --------------------
 const COIN = "🪙";
 
@@ -79,7 +60,14 @@ function escHtml(s) {
 }
 
 function fmt(n) {
-  return Number(n || 0).toLocaleString("en-US");
+  const x = typeof n === "string" ? Number(n.replace(/,/g, "")) : Number(n || 0);
+  return Number.isFinite(x) ? x.toLocaleString("en-US") : "0";
+}
+
+function toNum(v) {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") return Number(v.replace(/,/g, "")) || 0;
+  return 0;
 }
 
 function isGroupChat(ctx) {
@@ -98,7 +86,6 @@ async function replyHTML(ctx, html, extra = {}) {
   try {
     return await ctx.reply(html, { parse_mode: "HTML", disable_web_page_preview: true, ...extra });
   } catch (e) {
-    // fallback plain text
     return ctx.reply(String(html).replace(/<[^>]+>/g, ""));
   }
 }
@@ -156,6 +143,27 @@ function formatYangon(dt = new Date()) {
   }
 }
 
+// -------------------- Mongo connect --------------------
+async function connectMongo() {
+  mongo = new MongoClient(MONGO_URI, {});
+  await mongo.connect();
+  db = mongo.db(DB_NAME);
+
+  users = db.collection("users");
+  txs = db.collection("transactions");
+  orders = db.collection("orders");
+  configCol = db.collection("config");
+
+  await users.createIndex({ userId: 1 }, { unique: true });
+  await users.createIndex({ username: 1 }, { sparse: true });
+  await txs.createIndex({ createdAt: -1 });
+  await txs.createIndex({ type: 1, createdAt: -1 });
+  await orders.createIndex({ status: 1, createdAt: -1 });
+  await configCol.createIndex({ key: 1 }, { unique: true });
+
+  console.log("✅ Mongo connected");
+}
+
 // -------------------- User + Treasury primitives --------------------
 async function ensureUser(tgUser) {
   const doc = {
@@ -192,11 +200,28 @@ async function getUserByUsername(username) {
 // -------- Treasury (Owner bank) --------
 async function ensureTreasury() {
   const exist = await configCol.findOne({ key: "treasury" });
+
   if (exist) {
-    if (!exist.ownerUserId) {
+    const fixedTotal = toNum(exist.totalSupply);
+    const fixedOwner = toNum(exist.ownerBalance);
+    const fixedOwnerId = exist.ownerUserId || OWNER_ID;
+
+    const needFix =
+      fixedTotal !== exist.totalSupply ||
+      fixedOwner !== exist.ownerBalance ||
+      fixedOwnerId !== exist.ownerUserId;
+
+    if (needFix) {
       await configCol.updateOne(
         { key: "treasury" },
-        { $set: { ownerUserId: OWNER_ID, updatedAt: new Date() } }
+        {
+          $set: {
+            totalSupply: fixedTotal,
+            ownerBalance: fixedOwner,
+            ownerUserId: fixedOwnerId,
+            updatedAt: new Date(),
+          },
+        }
       );
       return configCol.findOne({ key: "treasury" });
     }
@@ -213,19 +238,23 @@ async function ensureTreasury() {
   });
   return configCol.findOne({ key: "treasury" });
 }
+
 async function getTreasury() {
   return configCol.findOne({ key: "treasury" });
 }
+
 function isOwner(ctx, treasury) {
   return treasury?.ownerUserId && ctx.from?.id === treasury.ownerUserId;
 }
+
 async function setTotalSupply(ctx, amount) {
   const t = await ensureTreasury();
   if (!isOwner(ctx, t)) return { ok: false, reason: "NOT_OWNER" };
 
+  const amt = Math.max(0, Math.floor(toNum(amount)));
   await configCol.updateOne(
     { key: "treasury" },
-    { $set: { totalSupply: amount, ownerBalance: amount, updatedAt: new Date() } }
+    { $set: { totalSupply: amt, ownerBalance: amt, updatedAt: new Date() } }
   );
   return { ok: true };
 }
@@ -238,7 +267,7 @@ function txErrorLooksUnsupported(err) {
     m.includes("replica set") ||
     m.includes("mongos") ||
     m.includes("does not support transactions") ||
-    m.includes("Transaction") && m.includes("not supported")
+    (m.includes("Transaction") && m.includes("not supported"))
   );
 }
 
@@ -252,39 +281,51 @@ async function withMaybeTx(work) {
     if (txErrorLooksUnsupported(e)) {
       TX_SUPPORTED = false;
       console.log("⚠️ TX unsupported. Falling back to non-transaction mode.");
-      // retry non-tx
       return await work(null);
     }
     throw e;
   } finally {
-    try { await session.endSession(); } catch (_) {}
+    try {
+      await session.endSession();
+    } catch (_) {}
   }
+}
+
+// Mongo driver safe extraction: some versions return {value}, some return doc, some return {ok,value}
+function extractUpdatedDoc(res) {
+  if (!res) return null;
+  if (res.value !== undefined) return res.value; // classic
+  if (res?.lastErrorObject && res?.ok !== undefined && res?.value !== undefined) return res.value; // legacy envelope
+  return res; // if driver returns doc directly (rare) or object without .value
 }
 
 // Atomic: Treasury -> User
 async function treasuryPayToUser(toUserId, amount, meta = {}) {
-  if (amount <= 0) return;
+  const amt = Math.floor(toNum(amount));
+  if (amt <= 0) return;
 
   return withMaybeTx(async (session) => {
     const opts = session ? { session, returnDocument: "after" } : { returnDocument: "after" };
 
     const tRes = await configCol.findOneAndUpdate(
-      { key: "treasury", ownerBalance: { $gte: amount } },
-      { $inc: { ownerBalance: -amount }, $set: { updatedAt: new Date() } },
+      { key: "treasury", ownerBalance: { $gte: amt } },
+      { $inc: { ownerBalance: -amt }, $set: { updatedAt: new Date() } },
       opts
     );
-    if (!tRes.value) throw new Error("TREASURY_INSUFFICIENT");
+
+    const tDoc = extractUpdatedDoc(tRes);
+    if (!tDoc) throw new Error("TREASURY_INSUFFICIENT");
 
     const uOpts = session ? { upsert: true, session } : { upsert: true };
     await users.updateOne(
       { userId: toUserId },
-      { $inc: { balance: amount }, $set: { updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
+      { $inc: { balance: amt }, $set: { updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
       uOpts
     );
 
     const txOpts = session ? { session } : {};
     await txs.insertOne(
-      { type: meta.type || "treasury_pay", fromUserId: "TREASURY", toUserId, amount, meta, createdAt: new Date() },
+      { type: meta.type || "treasury_pay", fromUserId: "TREASURY", toUserId, amount: amt, meta, createdAt: new Date() },
       txOpts
     );
   });
@@ -292,28 +333,38 @@ async function treasuryPayToUser(toUserId, amount, meta = {}) {
 
 // Atomic: User -> Treasury
 async function userPayToTreasury(fromUserId, amount, meta = {}) {
-  if (amount <= 0) return;
+  const amt = Math.floor(toNum(amount));
+  if (amt <= 0) return;
 
   return withMaybeTx(async (session) => {
     const opts = session ? { session, returnDocument: "after" } : { returnDocument: "after" };
 
     const uRes = await users.findOneAndUpdate(
-      { userId: fromUserId, balance: { $gte: amount } },
-      { $inc: { balance: -amount }, $set: { updatedAt: new Date() } },
+      { userId: fromUserId, balance: { $gte: amt } },
+      { $inc: { balance: -amt }, $set: { updatedAt: new Date() } },
       opts
     );
-    if (!uRes.value) throw new Error("USER_INSUFFICIENT");
+
+    const uDoc = extractUpdatedDoc(uRes);
+    if (!uDoc) throw new Error("USER_INSUFFICIENT");
 
     const tOpts = session ? { session } : {};
     await configCol.updateOne(
       { key: "treasury" },
-      { $inc: { ownerBalance: amount }, $set: { updatedAt: new Date() } },
+      { $inc: { ownerBalance: amt }, $set: { updatedAt: new Date() } },
       tOpts
     );
 
     const txOpts = session ? { session } : {};
     await txs.insertOne(
-      { type: meta.type || "treasury_receive", fromUserId, toUserId: "TREASURY", amount, meta, createdAt: new Date() },
+      {
+        type: meta.type || "treasury_receive",
+        fromUserId,
+        toUserId: "TREASURY",
+        amount: amt,
+        meta,
+        createdAt: new Date(),
+      },
       txOpts
     );
   });
@@ -321,30 +372,30 @@ async function userPayToTreasury(fromUserId, amount, meta = {}) {
 
 // Atomic: User -> User
 async function transferBalance(fromUserId, toUserId, amount, meta = {}) {
-  if (amount <= 0) return;
+  const amt = Math.floor(toNum(amount));
+  if (amt <= 0) return;
 
   return withMaybeTx(async (session) => {
     const opts = session ? { session, returnDocument: "after" } : { returnDocument: "after" };
 
     const fromRes = await users.findOneAndUpdate(
-      { userId: fromUserId, balance: { $gte: amount } },
-      { $inc: { balance: -amount }, $set: { updatedAt: new Date() } },
+      { userId: fromUserId, balance: { $gte: amt } },
+      { $inc: { balance: -amt }, $set: { updatedAt: new Date() } },
       opts
     );
-    if (!fromRes.value) throw new Error("INSUFFICIENT");
+
+    const fromDoc = extractUpdatedDoc(fromRes);
+    if (!fromDoc) throw new Error("INSUFFICIENT");
 
     const toOpts = session ? { upsert: true, session } : { upsert: true };
     await users.updateOne(
       { userId: toUserId },
-      { $inc: { balance: amount }, $set: { updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
+      { $inc: { balance: amt }, $set: { updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
       toOpts
     );
 
     const txOpts = session ? { session } : {};
-    await txs.insertOne(
-      { type: "gift", fromUserId, toUserId, amount, meta, createdAt: new Date() },
-      txOpts
-    );
+    await txs.insertOne({ type: "gift", fromUserId, toUserId, amount: amt, meta, createdAt: new Date() }, txOpts);
   });
 }
 
@@ -354,7 +405,7 @@ bot.command("settotal", async (ctx) => {
   if (!amount || amount <= 0) {
     return replyHTML(ctx, `🏦 <b>Treasury Settings</b>\n━━━━━━━━━━━━━━\nUsage: <code>/settotal 5000000</code>`);
   }
-  const r = await setTotalSupply(ctx, Math.floor(amount));
+  const r = await setTotalSupply(ctx, amount);
   if (!r.ok) return replyHTML(ctx, "⛔ Owner only command.");
 
   const tt = await getTreasury();
@@ -381,10 +432,9 @@ bot.start(async (ctx) => {
   await ensureTreasury();
   const u = await ensureUser(ctx.from);
 
-  // ✅ Fix: only mark claimed AFTER successful payout
   if (!u.startBonusClaimed) {
     const tr = await getTreasury();
-    if (!tr?.ownerBalance || tr.ownerBalance < START_BONUS) {
+    if (!toNum(tr?.ownerBalance) || toNum(tr.ownerBalance) < START_BONUS) {
       return replyHTML(
         ctx,
         `⚠️ <b>Treasury မသတ်မှတ်ရသေးပါ</b>\n━━━━━━━━━━━━━━━━━━━━\nOwner က <code>/settotal 5000000</code> လုပ်ပြီးမှ Welcome Bonus ပေးနိုင်ပါတယ်။`
@@ -393,10 +443,7 @@ bot.start(async (ctx) => {
 
     try {
       await treasuryPayToUser(ctx.from.id, START_BONUS, { type: "start_bonus" });
-      await users.updateOne(
-        { userId: ctx.from.id },
-        { $set: { startBonusClaimed: true, updatedAt: new Date() } }
-      );
+      await users.updateOne({ userId: ctx.from.id }, { $set: { startBonusClaimed: true, updatedAt: new Date() } });
 
       const updated = await getUser(ctx.from.id);
       return replyHTML(
@@ -455,7 +502,7 @@ bot.command("dailyclaim", async (ctx) => {
 
   const amount = randInt(DAILY_MIN, DAILY_MAX);
   const tr = await getTreasury();
-  if (!tr?.ownerBalance || tr.ownerBalance < amount) {
+  if (toNum(tr?.ownerBalance) < amount) {
     return replyHTML(ctx, "🏦 Treasury မလုံလောက်လို့ daily claim မပေးနိုင်သေးပါ။");
   }
 
@@ -473,9 +520,7 @@ bot.command("dailyclaim", async (ctx) => {
         `🕒 ${escHtml(formatYangon(now))} (Yangon)`
     );
   } catch (e) {
-    if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
-      return replyHTML(ctx, "🏦 Treasury မလုံလောက်ပါ။");
-    }
+    if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) return replyHTML(ctx, "🏦 Treasury မလုံလောက်ပါ။");
     console.error("dailyclaim error:", e);
     return replyHTML(ctx, "⚠️ Error ဖြစ်သွားပါတယ်။");
   }
@@ -483,16 +528,15 @@ bot.command("dailyclaim", async (ctx) => {
 
 // -------------------- .mybalance Pro+ (GROUP ONLY) --------------------
 function getBalanceRank(balance) {
-  const b = Number(balance || 0);
-
+  const b = toNum(balance);
   if (b === 0) return { title: "ဖင်ပြောင်ငမွဲ အဆင့်", badge: "🪫", color: "⚪" };
-  if (b >= 1 && b <= 500) return { title: "ဆင်းရဲသား အိမ်ခြေမဲ့ အဆင့်", badge: "🥀", color: "🟤" };
-  if (b >= 501 && b <= 1000) return { title: "အိမ်ပိုင်ဝန်းပိုင် ဆင်းရဲသားအဆင့်", badge: "🏚️", color: "🟠" };
-  if (b >= 1001 && b <= 5000) return { title: "လူလတ်တန်းစားအဆင့်", badge: "🏘️", color: "🟢" };
-  if (b >= 5001 && b <= 10000) return { title: "သူဌေးပေါက်စ အဆင့်", badge: "💼", color: "🔵" };
-  if (b >= 10001 && b <= 100000) return { title: "သိန်းကြွယ်သူဌေး အဆင့်", badge: "💰", color: "🟣" };
-  if (b >= 100001 && b <= 1000000) return { title: "သန်းကြွယ်သူဌေးအကြီးစား အဆင့်", badge: "🏦", color: "🟡" };
-  if (b >= 1000001 && b <= 50000000) return { title: "ကုဋေရှစ်ဆယ် သူဌေးကြီး အဆင့်", badge: "👑", color: "🟠" };
+  if (b <= 500) return { title: "ဆင်းရဲသား အိမ်ခြေမဲ့ အဆင့်", badge: "🥀", color: "🟤" };
+  if (b <= 1000) return { title: "အိမ်ပိုင်ဝန်းပိုင် ဆင်းရဲသားအဆင့်", badge: "🏚️", color: "🟠" };
+  if (b <= 5000) return { title: "လူလတ်တန်းစားအဆင့်", badge: "🏘️", color: "🟢" };
+  if (b <= 10000) return { title: "သူဌေးပေါက်စ အဆင့်", badge: "💼", color: "🔵" };
+  if (b <= 100000) return { title: "သိန်းကြွယ်သူဌေး အဆင့်", badge: "💰", color: "🟣" };
+  if (b <= 1000000) return { title: "သန်းကြွယ်သူဌေးအကြီးစား အဆင့်", badge: "🏦", color: "🟡" };
+  if (b <= 50000000) return { title: "ကုဋေရှစ်ဆယ် သူဌေးကြီး အဆင့်", badge: "👑", color: "🟠" };
   return { title: "ကုဋေရှစ်ဆယ် သူဌေးအကြီးစား အဆင့်", badge: "👑✨", color: "🟥" };
 }
 
@@ -504,7 +548,7 @@ function progressBar(current, min, max, blocks = 10) {
 }
 
 function getRankRange(balance) {
-  const b = Number(balance || 0);
+  const b = toNum(balance);
   if (b === 0) return { min: 0, max: 0 };
   if (b <= 500) return { min: 1, max: 500 };
   if (b <= 1000) return { min: 501, max: 1000 };
@@ -520,7 +564,7 @@ bot.hears(/^\.(mybalance|bal)\s*$/i, async (ctx) => {
   if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.mybalance</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
 
   const u = await ensureUser(ctx.from);
-  const bal = Number(u.balance || 0);
+  const bal = toNum(u.balance);
 
   const rank = getBalanceRank(bal);
   const range = getRankRange(bal);
@@ -579,7 +623,8 @@ bot.command("gift", async (ctx) => {
     const uname = parseMentionUsername(ctx.message?.text || "");
     if (!uname) return replyHTML(ctx, "👤 Reply (/gift 500) သို့ /gift @username 500 သုံးပါ။");
     const toU = await getUserByUsername(uname);
-    if (!toU) return replyHTML(ctx, "⚠️ ဒီ @username ကို မတွေ့ပါ။ (သူ bot ကို /start လုပ်ထားရမယ်) သို့ Reply နဲ့ gift ပို့ပါ။");
+    if (!toU)
+      return replyHTML(ctx, "⚠️ ဒီ @username ကို မတွေ့ပါ။ (သူ bot ကို /start လုပ်ထားရမယ်) သို့ Reply နဲ့ gift ပို့ပါ။");
     if (toU.userId === fromTg.id) return replyHTML(ctx, "😅 ကိုယ့်ကိုကိုယ် gift မပို့နိုင်ပါ။");
     toUserId = toU.userId;
     toLabelHtml = `@${escHtml(uname)}`;
@@ -609,7 +654,8 @@ function parseTargetAndAmount(text) {
   if (parts.length === 2 && amount) return { mode: "reply", target: null, amount };
   if (parts.length >= 3) {
     const rawTarget = parts[1];
-    if (rawTarget.startsWith("@")) return { mode: "explicit", target: { type: "username", value: rawTarget.slice(1).toLowerCase() }, amount };
+    if (rawTarget.startsWith("@"))
+      return { mode: "explicit", target: { type: "username", value: rawTarget.slice(1).toLowerCase() }, amount };
     if (/^\d+$/.test(rawTarget)) return { mode: "explicit", target: { type: "userId", value: parseInt(rawTarget, 10) }, amount };
   }
   return { mode: "invalid", target: null, amount: null };
@@ -711,7 +757,6 @@ bot.command("removebalance", async (ctx) => {
 });
 
 // -------------------- Shop + Orders --------------------
-// ✅ Price fixed to your MMK list
 const SHOP_ITEMS = [
   { id: "dia11", name: "Diamonds 11 💎", price: 10000 },
   { id: "dia22", name: "Diamonds 22 💎", price: 19000 },
@@ -833,21 +878,29 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
   const art = slotArt(a, b, c);
 
   const vibeHeader =
-    vibe === "glow" ? "🏆✨ WIN GLOW! ✨🏆" :
-    vibe === "lose" ? "🥀 BAD LUCK… 🥀" :
-    vibe === "jackpot1" ? "🎉🎉🎉 JACKPOT HIT! 🎉🎉🎉" :
-    vibe === "jackpot2" ? "💎🏆 777 MEGA WIN! 🏆💎" :
-    "🎰 BIKA Pro Slot";
+    vibe === "glow"
+      ? "🏆✨ WIN GLOW! ✨🏆"
+      : vibe === "lose"
+        ? "🥀 BAD LUCK… 🥀"
+        : vibe === "jackpot1"
+          ? "🎉🎉🎉 JACKPOT HIT! 🎉🎉🎉"
+          : vibe === "jackpot2"
+            ? "💎🏆 777 MEGA WIN! 🏆💎"
+            : "🎰 BIKA Pro Slot";
 
   const sound =
-    vibe === "spin" ? "🔊 KRRR… KRRR…  🎛️" :
-    vibe === "lock" ? "🔊 KLAK!  🔒" :
-    vibe === "glow" ? "✨✨✨" :
-    vibe === "lose" ? "🔇 whomp… whomp…  💔" :
-    vibe.startsWith("jackpot") ? "💥🔥🎆" :
-    "🔊";
+    vibe === "spin"
+      ? "🔊 KRRR… KRRR…  🎛️"
+      : vibe === "lock"
+        ? "🔊 KLAK!  🔒"
+        : vibe === "glow"
+          ? "✨✨✨"
+          : vibe === "lose"
+            ? "🔇 whomp… whomp…  💔"
+            : vibe.startsWith("jackpot")
+              ? "💥🔥🎆"
+              : "🔊";
 
-  // use <pre> for stable mono block
   return (
     `<b>${escHtml(vibeHeader)}</b>\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -859,6 +912,7 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
 
 async function runSlotSpinAnimated(ctx, bet) {
   const userId = ctx.from?.id;
+  if (!userId) return;
 
   const last = lastSlotAt.get(userId) || 0;
   if (Date.now() - last < SLOT.cooldownMs) {
@@ -893,10 +947,9 @@ async function runSlotSpinAnimated(ctx, bet) {
 
   if (payout > 0) {
     const tr = await getTreasury();
-    const ownerBal = tr?.ownerBalance || 0;
+    const ownerBal = toNum(tr?.ownerBalance);
     const maxPay = Math.floor(ownerBal * SLOT.capPercent);
-    payout = Math.min(payout, maxPay);
-    payout = Math.min(payout, ownerBal);
+    payout = Math.min(payout, maxPay, ownerBal);
   }
 
   const win = payout > 0;
@@ -935,8 +988,9 @@ async function runSlotSpinAnimated(ctx, bet) {
       await treasuryPayToUser(userId, payout, { type: "slot_win", bet, payout, combo: `${finalA},${finalB},${finalC}` });
     } catch (e) {
       console.error("slot payout error:", e);
-      // refund bet if payout failed
-      try { await treasuryPayToUser(userId, bet, { type: "slot_refund", reason: "payout_fail" }); } catch (_) {}
+      try {
+        await treasuryPayToUser(userId, bet, { type: "slot_refund", reason: "payout_fail" });
+      } catch (_) {}
       await editHTML(
         ctx,
         chatId,
@@ -974,8 +1028,14 @@ bot.hears(/^\.(slot)\s+(\d+)\s*$/i, async (ctx) => {
 });
 
 // -------------------- RTP monitor + /setrtp --------------------
-function padRight(s, n) { s = String(s); return s.length >= n ? s : s + " ".repeat(n - s.length); }
-function padLeft(s, n) { s = String(s); return s.length >= n ? s : " ".repeat(n - s.length) + s; }
+function padRight(s, n) {
+  s = String(s);
+  return s.length >= n ? s : s + " ".repeat(n - s.length);
+}
+function padLeft(s, n) {
+  s = String(s);
+  return s.length >= n ? s : " ".repeat(n - s.length) + s;
+}
 
 function renderPayoutsTable() {
   const rows = [
@@ -1007,25 +1067,32 @@ function renderPayoutsTable() {
   out.push(end);
   return out.join("\n");
 }
+
 function buildProbMap(reel) {
   const total = reel.reduce((a, x) => a + x.w, 0);
   const map = new Map();
   for (const it of reel) map.set(it.s, it.w / total);
   return map;
 }
+
 function calcBaseRTP() {
   const p1 = buildProbMap(SLOT.reels[0]);
   const p2 = buildProbMap(SLOT.reels[1]);
   const p3 = buildProbMap(SLOT.reels[2]);
-  const syms1 = [...p1.keys()], syms2 = [...p2.keys()], syms3 = [...p3.keys()];
+  const syms1 = [...p1.keys()],
+    syms2 = [...p2.keys()],
+    syms3 = [...p3.keys()];
   let expectedMultiplier = 0;
-  for (const a of syms1) for (const b of syms2) for (const c of syms3) {
-    const prob = p1.get(a) * p2.get(b) * p3.get(c);
-    const mult = calcMultiplier(a, b, c);
-    expectedMultiplier += prob * (mult || 0);
-  }
+  for (const a of syms1)
+    for (const b of syms2)
+      for (const c of syms3) {
+        const prob = p1.get(a) * p2.get(b) * p3.get(c);
+        const mult = calcMultiplier(a, b, c);
+        expectedMultiplier += prob * (mult || 0);
+      }
   return expectedMultiplier;
 }
+
 function approx777Odds() {
   const p1 = buildProbMap(SLOT.reels[0]).get("7") || 0;
   const p2 = buildProbMap(SLOT.reels[1]).get("7") || 0;
@@ -1034,6 +1101,7 @@ function approx777Odds() {
   if (p777 <= 0) return "N/A";
   return `~1 / ${fmt(Math.round(1 / p777))}`;
 }
+
 function scalePayouts(factor) {
   for (const k of Object.keys(SLOT.payouts)) {
     SLOT.payouts[k] = Number((SLOT.payouts[k] * factor).toFixed(4));
@@ -1440,15 +1508,20 @@ let server = null;
   });
 
   console.log("🤖 Bot started (Webhook mode)");
-})();
+})().catch((e) => {
+  console.error("BOOT ERROR:", e);
+  process.exit(1);
+});
 
-// ✅ FIX: Webhook mode မှာ bot.stop() က "Bot is not running!" ဖြစ်နိုင်လို့ safe shutdown
-
+// ✅ Safe shutdown (Webhook mode: DO NOT call bot.stop())
 async function safeShutdown(signal) {
   console.log(`🧯 Shutdown signal: ${signal}`);
-  try { if (server) server.close(); } catch (_) {}
-  try { if (mongo) await mongo.close(); } catch (_) {}
-  // ❌ Webhook mode မှာ bot.stop() မခေါ်ပါနဲ့ (Bot is not running! ဖြစ်တတ်)
+  try {
+    if (server) server.close();
+  } catch (_) {}
+  try {
+    if (mongo) await mongo.close();
+  } catch (_) {}
   process.exit(0);
 }
 
