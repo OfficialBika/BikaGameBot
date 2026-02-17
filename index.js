@@ -7,8 +7,9 @@
  * ✅ Treasury: /settotal, /treasury (owner only)
  * ✅ /start one-time bonus 300 (ONLY if treasury has balance)
  * ✅ /dailyclaim group only (Yangon day) 50~100 (ONLY if treasury has balance)
- * ✅ .slot 100 (group) animated edit UI
+ * ✅ .slot (group) animated edit UI
  *    - ✅ Multi play supported: each user gets their own animation message (reply to their command)
+ *    - ✅ MAX active slot concurrent = 15 (global), each user single active spin
  * ✅ /setrtp 90 + /rtp payout pro table
  * ✅ /shop inline buy -> Orders
  *    - ✅ Order status: PENDING → PAID / DELIVERED / CANCELLED
@@ -419,10 +420,7 @@ async function transferBalance(fromUserId, toUserId, amount, meta = {}) {
     );
 
     const txOpts = session ? { session } : {};
-    await txs.insertOne(
-      { type: "gift", fromUserId, toUserId, amount: amt, meta, createdAt: new Date() },
-      txOpts
-    );
+    await txs.insertOne({ type: "gift", fromUserId, toUserId, amount: amt, meta, createdAt: new Date() }, txOpts);
   });
 }
 
@@ -430,7 +428,7 @@ async function transferBalance(fromUserId, toUserId, amount, meta = {}) {
 bot.command("settotal", async (ctx) => {
   const amount = parseAmount(ctx.message?.text || "");
   if (!amount || amount <= 0) {
-    return replyHTML(ctx, `🏦 <b>Treasury Settings</b>\n━━━━━━━━━━━━━━\nUsage: <code>/settotal 5000000</code>`);
+    return replyHTML(ctx, `🏦 <b>Treasury Settings</b>\n━━━━━━━━━━━━\nUsage: <code>/settotal 5000000</code>`);
   }
   const r = await setTotalSupply(ctx, amount);
   if (!r.ok) return replyHTML(ctx, "⛔ Owner only command.");
@@ -438,7 +436,7 @@ bot.command("settotal", async (ctx) => {
   const tt = await getTreasury();
   return replyHTML(
     ctx,
-    `🏦 <b>Treasury Initialized</b>\n━━━━━━━━━━━━━━\n• Total Supply: <b>${fmt(tt.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tt.ownerBalance)}</b> ${COIN}`
+    `🏦 <b>Treasury Initialized</b>\n━━━━━━━━━━━\n• Total Supply: <b>${fmt(tt.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tt.ownerBalance)}</b> ${COIN}`
   );
 });
 
@@ -448,7 +446,7 @@ bot.command("treasury", async (ctx) => {
   const tr = await getTreasury();
   return replyHTML(
     ctx,
-    `🏦 <b>Treasury Dashboard</b>\n━━━━━━━━━━━━━━\n• Total Supply: <b>${fmt(tr.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tr.ownerBalance)}</b> ${COIN}\n• Timezone: <b>${escHtml(TZ)}</b>\n• Owner ID: <code>${tr.ownerUserId}</code>`
+    `🏦 <b>Treasury Dashboard</b>\n━━━━━━━━━━━\n• Total Supply: <b>${fmt(tr.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tr.ownerBalance)}</b> ${COIN}\n• Timezone: <b>${escHtml(TZ)}</b>\n• Owner ID: <code>${tr.ownerUserId}</code>`
   );
 });
 
@@ -464,7 +462,7 @@ bot.start(async (ctx) => {
     if (toNum(tr?.ownerBalance) < START_BONUS) {
       return replyHTML(
         ctx,
-        `⚠️ <b>Treasury မသတ်မှတ်ရသေးပါ</b>\n━━━━━━━━━━━━━━━━━━━━\nOwner က <code>/settotal 5000000</code> လုပ်ပြီးမှ Welcome Bonus ပေးနိုင်ပါတယ်။`
+        `⚠️ <b>Treasury မသတ်မှတ်ရသေးပါ</b>\n━━━━━━━━━━━━━\nOwner က <code>/settotal 5000000</code> လုပ်ပြီးမှ Welcome Bonus ပေးနိုင်ပါတယ်။`
       );
     }
 
@@ -475,11 +473,11 @@ bot.start(async (ctx) => {
       const updated = await getUser(ctx.from.id);
       return replyHTML(
         ctx,
-        `🎉 <b>Welcome Bonus</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
+        `🎉 <b>Welcome Bonus</b>\n━━━━━━━━━━━━━━\n` +
           `👤 ${mentionHtml(ctx.from)}\n` +
           `➕ Bonus: <b>${fmt(START_BONUS)}</b> ${COIN}\n` +
           `💼 Balance: <b>${fmt(updated?.balance)}</b> ${COIN}\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━\n` +
           `Group Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.mybalance</code>\n• <code>/shop</code>`
       );
     } catch (e) {
@@ -493,7 +491,7 @@ bot.start(async (ctx) => {
 
   return replyHTML(
     ctx,
-    `👋 <b>Welcome back</b>\n━━━━━━━━━━━━━━━━━━━━\nGroup Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.mybalance</code>\n• <code>/shop</code>`
+    `👋 <b>Welcome back</b>\n━━━━━━━━━━━━\nGroup Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.mybalance</code>\n• <code>/shop</code>`
   );
 });
 
@@ -523,7 +521,7 @@ bot.command("dailyclaim", async (ctx) => {
   if (last && last >= todayStart) {
     return replyHTML(
       ctx,
-      `⏳ <b>Daily Claim</b>\n━━━━━━━━━━━━━━━━━━━━\nဒီနေ့ claim လုပ်ပြီးသားပါ။\nYangon time နဲ့ နေ့သစ်ဝင်ပြီးမှ ပြန် claim လုပ်နိုင်ပါတယ်။`
+      `⏳ <b>Daily Claim</b>\n━━━━━━━━━━━━━━\nဒီနေ့ claim လုပ်ပြီးသားပါ။\nYangon time နဲ့ နေ့သစ်ဝင်ပြီးမှ ပြန် claim လုပ်နိုင်ပါတယ်။`
     );
   }
 
@@ -540,7 +538,7 @@ bot.command("dailyclaim", async (ctx) => {
     const updated = await getUser(ctx.from.id);
     return replyHTML(
       ctx,
-      `🎁 <b>Daily Claim Success</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
+      `🎁 <b>Daily Claim Success</b>\n━━━━━━━━━━━━━━\n` +
         `👤 ${mentionHtml(ctx.from)}\n` +
         `➕ Reward: <b>${fmt(amount)}</b> ${COIN}\n` +
         `💼 Balance: <b>${fmt(updated?.balance)}</b> ${COIN}\n` +
@@ -599,14 +597,16 @@ bot.hears(/^\.(mybalance|bal)\s*$/i, async (ctx) => {
 
   const msg =
     `💼 <b>BIKA Pro+ Wallet</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `👤 ${mentionHtml(ctx.from)}\n` +
-    `Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `🪙 Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${rank.badge} <b>Rank:</b> ${escHtml(rank.title)}\n` +
+    
     `${rank.color} <b>Progress:</b> <code>${escHtml(bar)}</code>\n` +
-    `Range: <b>${fmt(range.min)}</b> → <b>${fmt(range.max)}</b> ${COIN}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    
+    `📌 Range: <b>${fmt(range.min)}</b> → <b>${fmt(range.max)}</b> ${COIN}\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)`;
 
   return replyHTML(ctx, msg);
@@ -664,7 +664,7 @@ bot.command("gift", async (ctx) => {
 
     return replyHTML(
       ctx,
-      `✅ <b>Gift Sent</b>\n━━━━━━━━━━━━━━\n🎁 To: ${toLabelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nYour Balance: <b>${fmt(updatedFrom?.balance)}</b> ${COIN}`
+      `✅ <b>Gift Sent</b>\n━━━━━━━━━━━━━━\n🎁 To: ${toLabelHtml}\n💸 Amount: <b>${fmt(amount)}</b> ${COIN}\n💼 Your Balance: <b>${fmt(updatedFrom?.balance)}</b> ${COIN}`
     );
   } catch (e) {
     if (String(e?.message || e).includes("INSUFFICIENT")) return replyHTML(ctx, "❌ Balance မလုံလောက်ပါ။");
@@ -737,7 +737,7 @@ bot.command("addbalance", async (ctx) => {
 
     return replyHTML(
       ctx,
-      `✅ <b>Balance Added</b>\n━━━━━━━━━━━━━━\nUser: ${r.labelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nTreasury Left: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
+      `✅ <b>Balance Added</b>\n━━━━━━━━━━━━━━\n👤 User: ${r.labelHtml}\n➕ Amount: <b>${fmt(amount)}</b> ${COIN}\n💼 User Balance: <b>${fmt(u?.balance)}</b> ${COIN}\n🏦 Treasury Left: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
     );
   } catch (e) {
     if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
@@ -771,7 +771,7 @@ bot.command("removebalance", async (ctx) => {
 
     return replyHTML(
       ctx,
-      `✅ <b>Balance Removed</b>\n━━━━━━━━━━━━\nUser: ${r.labelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nTreasury Now: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
+      `✅ <b>Balance Removed</b>\n━━━━━━━━━━━━━━\n👤 User: ${r.labelHtml}\n➖ Amount: <b>${fmt(amount)}</b> ${COIN}\n💼 User Balance: <b>${fmt(u?.balance)}</b> ${COIN}\n🏦 Treasury Now: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
     );
   } catch (e) {
     if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
@@ -784,7 +784,6 @@ bot.command("removebalance", async (ctx) => {
 });
 
 // -------------------- Shop + Orders --------------------
-// ✅ Price fixed (MMK as coin)
 const SHOP_ITEMS = [
   { id: "dia11", name: "Diamonds 11 💎", price: 10000 },
   { id: "dia22", name: "Diamonds 22 💎", price: 19000 },
@@ -818,16 +817,15 @@ function shopText(balance) {
   const lines = SHOP_ITEMS.map((x) => `• ${escHtml(x.name)} — <b>${fmt(x.price)}</b> ${COIN}`).join("\n");
   return (
     `🛒 <b>BIKA Pro Shop</b>\n` +
-    `━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━\n` +
     `${lines}\n` +
-    `━━━━━━━━━━━━━━━━\n` +
-    `Your Balance: <b>${fmt(balance)}</b> ${COIN}\n` +
+    `━━━━━━━━━━━━━━━\n` +
+    `💼 Your Balance: <b>${fmt(balance)}</b> ${COIN}\n` +
     `Select an item below:`
   );
 }
 
 function genReceiptCode() {
-  // short receipt: 10 chars
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let s = "";
   for (let i = 0; i < 10; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
@@ -842,19 +840,20 @@ function orderActionKeyboard(orderId) {
         { text: "📦 Mark DELIVERED", callback_data: `ORDER:DELIVERED:${orderId}` },
       ],
       [{ text: "❌ Cancel + Refund", callback_data: `ORDER:CANCEL:${orderId}` }],
+      [{ text: "⬅️ Back to Orders", callback_data: "ADMIN:ORDERS" }],
     ],
   };
 }
 
 function adminOrdersKeyboard(list) {
-  // show a list of up to 6 orders with manage buttons
   const rows = [];
-  for (const o of list.slice(0, 6)) {
+  for (const o of list.slice(0, 10)) {
     const id = String(o._id);
     const label = `${o.itemName} • ${fmt(o.price)} ${COIN} • ${o.status}`;
     rows.push([{ text: `🧾 ${label}`, callback_data: `ORDER:OPEN:${id}` }]);
   }
   rows.push([{ text: "🔄 Refresh Orders", callback_data: "ADMIN:ORDERS" }]);
+  rows.push([{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]);
   return { inline_keyboard: rows };
 }
 
@@ -910,6 +909,10 @@ const SLOT = {
     ANY2: 2,
   },
 };
+
+// ✅ Max active slot
+const activeSlots = new Set(); // userId set
+const MAX_ACTIVE_SLOTS = 15; // max 15 concurrent spins
 
 const lastSlotAt = new Map();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -975,18 +978,34 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
 
   return (
     `<b>${escHtml(vibeHeader)}</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<pre>${escHtml(art)}</pre>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${escHtml(sound)} ${escHtml(note)}`
   );
 }
 
-// ✅ Multi play: each call creates its own message (reply to user command)
-// ✅ Reply to user's .slot message: reply_to_message_id
+// ✅ Multi play: each user gets own animation message (reply)
+// ✅ MAX active slot: 15 concurrent; each user single active spin
 async function runSlotSpinAnimated(ctx, bet) {
   const userId = ctx.from?.id;
   if (!userId) return;
+
+  // per-user active guard
+  if (activeSlots.has(userId)) {
+    return replyHTML(ctx, "⏳ သင့် spin တစ်ခါ အပြီးသတ်မချင်း စောင့်ပါနော်…", {
+      reply_to_message_id: ctx.message?.message_id,
+    });
+  }
+
+  // global concurrent guard
+  if (activeSlots.size >= MAX_ACTIVE_SLOTS) {
+    return replyHTML(
+      ctx,
+      `🚦 <b>Slot Queue ပြည့်နေပါတယ်</b>\n━━━━━━━━━━━━━━━\nလက်ရှိ တပြိုင်နက် <b>${MAX_ACTIVE_SLOTS}</b> ယောက်ထိပဲ ဆော့ခွင့်ရှိပါတယ်။\nခဏစောင့်ပြီး ပြန်စမ်းပေးပါ။`,
+      { reply_to_message_id: ctx.message?.message_id }
+    );
+  }
 
   const last = lastSlotAt.get(userId) || 0;
   if (Date.now() - last < SLOT.cooldownMs) {
@@ -999,146 +1018,130 @@ async function runSlotSpinAnimated(ctx, bet) {
   if (bet < SLOT.minBet || bet > SLOT.maxBet) {
     return replyHTML(
       ctx,
-      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`,
+      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`,
       { reply_to_message_id: ctx.message?.message_id }
     );
   }
 
-  await ensureUser(ctx.from);
-  await ensureTreasury();
+  activeSlots.add(userId);
+
+  let chatId = ctx.chat?.id;
+  let messageId = null;
 
   try {
-    await userPayToTreasury(userId, bet, { type: "slot_bet", bet, chatId: ctx.chat?.id });
-  } catch (e) {
-    if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
-      return replyHTML(
-        ctx,
-        `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━━━━━━━━━\nSlot ဆော့ဖို့ လက်ကျန်ငွေ မလုံလောက်ပါ။\nDaily claim / gift / addbalance နဲ့ ငွေစုဆောင်းပြီးမှ ပြန်လာပါ။`,
-        { reply_to_message_id: ctx.message?.message_id }
-      );
-    }
-    console.error("slot bet error:", e);
-    return replyHTML(ctx, "⚠️ Error ဖြစ်သွားပါတယ်။", { reply_to_message_id: ctx.message?.message_id });
-  }
+    await ensureUser(ctx.from);
+    await ensureTreasury();
 
-  const finalA = weightedPick(SLOT.reels[0]);
-  const finalB = weightedPick(SLOT.reels[1]);
-  const finalC = weightedPick(SLOT.reels[2]);
-
-  const mult = calcMultiplier(finalA, finalB, finalC);
-  let payout = mult > 0 ? Math.floor(bet * mult) : 0;
-
-  if (payout > 0) {
-    const tr = await getTreasury();
-    const ownerBal = toNum(tr?.ownerBalance);
-    const maxPay = Math.floor(ownerBal * SLOT.capPercent);
-    payout = Math.min(payout, maxPay, ownerBal);
-  }
-
-  const win = payout > 0;
-  const isJackpot = finalA === "7" && finalB === "7" && finalC === "7";
-
-  const initA = randomSymbolFromReel(SLOT.reels[0]);
-  const initB = randomSymbolFromReel(SLOT.reels[1]);
-  const initC = randomSymbolFromReel(SLOT.reels[2]);
-
-  const sent = await replyHTML(ctx, spinFrame(initA, initB, initC, "reels spinning…", "spin"), {
-    reply_to_message_id: ctx.message?.message_id,
-  });
-
-  const chatId = ctx.chat?.id;
-  const messageId = sent?.message_id;
-
-  const frames = [
-    {
-      a: randomSymbolFromReel(SLOT.reels[0]),
-      b: randomSymbolFromReel(SLOT.reels[1]),
-      c: randomSymbolFromReel(SLOT.reels[2]),
-      note: "speed up!",
-      vibe: "spin",
-      delay: 650,
-    },
-    {
-      a: randomSymbolFromReel(SLOT.reels[0]),
-      b: randomSymbolFromReel(SLOT.reels[1]),
-      c: randomSymbolFromReel(SLOT.reels[2]),
-      note: "rolling…",
-      vibe: "spin",
-      delay: 650,
-    },
-    {
-      a: finalA,
-      b: randomSymbolFromReel(SLOT.reels[1]),
-      c: randomSymbolFromReel(SLOT.reels[2]),
-      note: "locking 1st reel…",
-      vibe: "lock",
-      delay: 850,
-    },
-    {
-      a: finalA,
-      b: finalB,
-      c: randomSymbolFromReel(SLOT.reels[2]),
-      note: "locking 2nd reel…",
-      vibe: "lock",
-      delay: 850,
-    },
-    { a: finalA, b: finalB, c: finalC, note: "result!", vibe: "lock", delay: 900 },
-  ];
-
-  if (win && !isJackpot)
-    frames.push({ a: finalA, b: finalB, c: finalC, note: "shining… payout loading…", vibe: "glow", delay: 900 });
-  if (isJackpot) {
-    frames.push({ a: finalA, b: finalB, c: finalC, note: "BOOM! 🔥🔥🔥", vibe: "jackpot1", delay: 900 });
-    frames.push({ a: finalA, b: finalB, c: finalC, note: "paying now…", vibe: "jackpot2", delay: 900 });
-  }
-  if (!win) frames.push({ a: finalA, b: finalB, c: finalC, note: "try again… 🍀", vibe: "lose", delay: 900 });
-
-  for (const f of frames) {
-    await sleep(f.delay);
-    await editHTML(ctx, chatId, messageId, spinFrame(f.a, f.b, f.c, f.note, f.vibe));
-  }
-
-  if (payout > 0) {
+    // bet pay
     try {
-      await treasuryPayToUser(userId, payout, {
-        type: "slot_win",
-        bet,
-        payout,
-        combo: `${finalA},${finalB},${finalC}`,
-      });
+      await userPayToTreasury(userId, bet, { type: "slot_bet", bet, chatId: ctx.chat?.id });
     } catch (e) {
-      console.error("slot payout error:", e);
-      // refund bet if payout failed
-      try {
-        await treasuryPayToUser(userId, bet, { type: "slot_refund", reason: "payout_fail" });
-      } catch (_) {}
-      await editHTML(
-        ctx,
-        chatId,
-        messageId,
-        `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
-      );
-      lastSlotAt.set(userId, Date.now());
-      return;
+      if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
+        return replyHTML(
+          ctx,
+          `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━━━━━\nSlot ဆော့ဖို့ လက်ကျန်ငွေ မလုံလောက်ပါ။\nDaily claim / gift / owner addbalance နဲ့ ငွေစုဆောင်းပြီးမှ ပြန်လာပါ။`,
+          { reply_to_message_id: ctx.message?.message_id }
+        );
+      }
+      console.error("slot bet error:", e);
+      return replyHTML(ctx, "⚠️ Error ဖြစ်သွားပါတယ်။", { reply_to_message_id: ctx.message?.message_id });
     }
+
+    const finalA = weightedPick(SLOT.reels[0]);
+    const finalB = weightedPick(SLOT.reels[1]);
+    const finalC = weightedPick(SLOT.reels[2]);
+
+    const mult = calcMultiplier(finalA, finalB, finalC);
+    let payout = mult > 0 ? Math.floor(bet * mult) : 0;
+
+    if (payout > 0) {
+      const tr = await getTreasury();
+      const ownerBal = toNum(tr?.ownerBalance);
+      const maxPay = Math.floor(ownerBal * SLOT.capPercent);
+      payout = Math.min(payout, maxPay, ownerBal);
+    }
+
+    const win = payout > 0;
+    const isJackpot = finalA === "7" && finalB === "7" && finalC === "7";
+
+    const initA = randomSymbolFromReel(SLOT.reels[0]);
+    const initB = randomSymbolFromReel(SLOT.reels[1]);
+    const initC = randomSymbolFromReel(SLOT.reels[2]);
+
+    const sent = await replyHTML(ctx, spinFrame(initA, initB, initC, "reels spinning…", "spin"), {
+      reply_to_message_id: ctx.message?.message_id,
+    });
+
+    messageId = sent?.message_id;
+
+    const frames = [
+      { a: randomSymbolFromReel(SLOT.reels[0]), b: randomSymbolFromReel(SLOT.reels[1]), c: randomSymbolFromReel(SLOT.reels[2]), note: "speed up!", vibe: "spin", delay: 650 },
+      { a: randomSymbolFromReel(SLOT.reels[0]), b: randomSymbolFromReel(SLOT.reels[1]), c: randomSymbolFromReel(SLOT.reels[2]), note: "rolling…", vibe: "spin", delay: 650 },
+      { a: finalA, b: randomSymbolFromReel(SLOT.reels[1]), c: randomSymbolFromReel(SLOT.reels[2]), note: "locking 1st reel…", vibe: "lock", delay: 850 },
+      { a: finalA, b: finalB, c: randomSymbolFromReel(SLOT.reels[2]), note: "locking 2nd reel…", vibe: "lock", delay: 850 },
+      { a: finalA, b: finalB, c: finalC, note: "result!", vibe: "lock", delay: 900 },
+    ];
+
+    if (win && !isJackpot) frames.push({ a: finalA, b: finalB, c: finalC, note: "shining… payout loading…", vibe: "glow", delay: 900 });
+    if (isJackpot) {
+      frames.push({ a: finalA, b: finalB, c: finalC, note: "BOOM! 🔥🔥🔥", vibe: "jackpot1", delay: 900 });
+      frames.push({ a: finalA, b: finalB, c: finalC, note: "paying now…", vibe: "jackpot2", delay: 900 });
+    }
+    if (!win) frames.push({ a: finalA, b: finalB, c: finalC, note: "try again… 🍀", vibe: "lose", delay: 900 });
+
+    for (const f of frames) {
+      await sleep(f.delay);
+      if (chatId && messageId) await editHTML(ctx, chatId, messageId, spinFrame(f.a, f.b, f.c, f.note, f.vibe));
+    }
+
+    // payout
+    if (payout > 0) {
+      try {
+        await treasuryPayToUser(userId, payout, {
+          type: "slot_win",
+          bet,
+          payout,
+          combo: `${finalA},${finalB},${finalC}`,
+        });
+      } catch (e) {
+        console.error("slot payout error:", e);
+        // refund bet if payout failed
+        try {
+          await treasuryPayToUser(userId, bet, { type: "slot_refund", reason: "payout_fail" });
+        } catch (_) {}
+
+        if (chatId && messageId) {
+          await editHTML(
+            ctx,
+            chatId,
+            messageId,
+            `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
+          );
+        }
+        lastSlotAt.set(userId, Date.now());
+        return;
+      }
+    }
+
+    lastSlotAt.set(userId, Date.now());
+
+    const net = payout - bet;
+    const headline = payout === 0 ? "❌ LOSE" : isJackpot ? "🏆 JACKPOT 777!" : "✅ WIN";
+
+    const finalMsg =
+      `🎰 <b>BIKA Pro Slot</b>\n` +
+      `━━━━━━━━━━━━━━\n` +
+      `<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n` +
+      `━━━━━━━━━━━━━━\n` +
+      `<b>${escHtml(headline)}</b>\n` +
+      `• Bet: <b>${fmt(bet)}</b> ${COIN}\n` +
+      `• Payout: <b>${fmt(payout)}</b> ${COIN}\n` +
+      `• Net: <b>${fmt(net)}</b> ${COIN}`;
+
+    if (chatId && messageId) await editHTML(ctx, chatId, messageId, finalMsg);
+  } finally {
+    activeSlots.delete(userId);
   }
-
-  lastSlotAt.set(userId, Date.now());
-
-  const net = payout - bet;
-  const headline = payout === 0 ? "❌ LOSE" : isJackpot ? "🏆 JACKPOT 777!" : "✅ WIN";
-
-  const finalMsg =
-    `🎰 <b>BIKA Pro Slot</b>\n` +
-    `━━━━━━━━━━━━━━\n` +
-    `<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n` +
-    `━━━━━━━━━━━━━━\n` +
-    `<b>${escHtml(headline)}</b>\n` +
-    `Bet: <b>${fmt(bet)}</b> ${COIN}\n` +
-    `Payout: <b>${fmt(payout)}</b> ${COIN}\n` +
-    `Net: <b>${fmt(net)}</b> ${COIN}`;
-
-  await editHTML(ctx, chatId, messageId, finalMsg);
 }
 
 bot.hears(/^\.(slot)\s+(\d+)\s*$/i, async (ctx) => {
@@ -1240,12 +1243,12 @@ bot.command("rtp", async (ctx) => {
   const msg =
     `🧮 <b>Slot RTP Dashboard</b>\n` +
     `━━━━━━━━━━━━━━\n` +
-    `Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
-    `Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
-    `Base RTP: <b>${(base * 100).toFixed(2)}%</b>\n` +
-    `House Edge: <b>${((1 - base) * 100).toFixed(2)}%</b>\n` +
-    `777 Odds: <b>${escHtml(odds777)}</b>\n` +
-    `Cap: <b>${Math.round(SLOT.capPercent * 100)}%</b> of Treasury / spin\n` +
+    `🏦 Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
+    `📦 Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
+    `🎯 Base RTP: <b>${(base * 100).toFixed(2)}%</b>\n` +
+    `📉 House Edge: <b>${((1 - base) * 100).toFixed(2)}%</b>\n` +
+    `🎰 777 Odds: <b>${escHtml(odds777)}</b>\n` +
+    `🛡️ Cap: <b>${Math.round(SLOT.capPercent * 100)}%</b> of Treasury / spin\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
     `━━━━━━━━━━━━━━\n` +
     `<b>Payout Table (Bet = 1,000)</b>\n` +
@@ -1260,7 +1263,7 @@ bot.command("setrtp", async (ctx) => {
 
   const parts = (ctx.message?.text || "").trim().split(/\s+/);
   if (parts.length < 2) {
-    return replyHTML(ctx, `⚙️ <b>Set RTP</b>\n━━━━━━━━━━━━━━━━━━━━\nUsage:\n• <code>/setrtp 90</code>\n• <code>/setrtp 0.90</code>`);
+    return replyHTML(ctx, `⚙️ <b>Set RTP</b>\n━━━━━━━━━━━━━━━━\nUsage:\n• <code>/setrtp 90</code>\n• <code>/setrtp 0.90</code>`);
   }
 
   let target = Number(parts[1]);
@@ -1282,12 +1285,12 @@ bot.command("setrtp", async (ctx) => {
   const msg =
     `✅ <b>RTP Updated (Owner)</b>\n` +
     `━━━━━━━━━━━━━━━\n` +
-    `Target RTP: <b>${(target * 100).toFixed(2)}%</b>\n` +
-    `Old Base RTP: <b>${(before * 100).toFixed(2)}%</b>\n` +
-    `New Base RTP: <b>${(after * 100).toFixed(2)}%</b>\n` +
-    `Scale Factor: <b>${factor.toFixed(4)}</b>\n` +
-    `777 Odds: <b>${escHtml(odds777)}</b>\n` +
-    `Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
+    `🎯 Target RTP: <b>${(target * 100).toFixed(2)}%</b>\n` +
+    `📌 Old Base RTP: <b>${(before * 100).toFixed(2)}%</b>\n` +
+    `✅ New Base RTP: <b>${(after * 100).toFixed(2)}%</b>\n` +
+    `🔧 Scale Factor: <b>${factor.toFixed(4)}</b>\n` +
+    `🎰 777 Odds: <b>${escHtml(odds777)}</b>\n` +
+    `🏦 Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
     `━━━━━━━━━━━━━━━\n` +
     `<b>Payout Table (Bet = 1,000)</b>\n` +
     `<pre>${escHtml(renderPayoutsTable())}</pre>`;
@@ -1343,16 +1346,16 @@ async function renderAdminPanel(ctx, note = "") {
   const s = getAdminSession(ctx.from.id);
 
   const targetLine = s?.targetUserId
-    ? `Target: <b>${escHtml(String(s.targetLabel))}</b> (ID: <code>${s.targetUserId}</code>)`
-    : `Target: <i>Not set</i>`;
+    ? `👤 Target: <b>${escHtml(String(s.targetLabel))}</b> (ID: <code>${s.targetUserId}</code>)`
+    : `👤 Target: <i>Not set</i>`;
 
   const extra = note ? `\n${note}\n` : "\n";
 
   const text =
     `${ADMIN.panelTitle}\n` +
     `━━━━━━━━━━━━━━━\n` +
-    `Treasury Balance: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
-    `Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
+    `🏦 Treasury Balance: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
+    `📦 Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
     `━━━━━━━━━━━━━━━\n` +
     `${targetLine}\n` +
@@ -1361,7 +1364,16 @@ async function renderAdminPanel(ctx, note = "") {
     `Choose an action below:`;
 
   if (ctx.updateType === "callback_query") {
-    return ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: adminKeyboard(), disable_web_page_preview: true });
+    try {
+      return await ctx.editMessageText(text, {
+        parse_mode: "HTML",
+        reply_markup: adminKeyboard(),
+        disable_web_page_preview: true,
+      });
+    } catch (_) {
+      // if edit fails (old message), fallback new message
+      return replyHTML(ctx, text, { reply_markup: adminKeyboard() });
+    }
   }
   return replyHTML(ctx, text, { reply_markup: adminKeyboard() });
 }
@@ -1372,7 +1384,7 @@ async function askManualTarget(ctx) {
   setAdminSession(ctx.from.id, { mode: "await_target" });
   return replyHTML(
     ctx,
-    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
+    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1388,7 +1400,7 @@ async function askAmount(ctx, type) {
 
   return replyHTML(
     ctx,
-    `${header}\n━━━━━━━━━━━━━━━━\nTarget: <b>${escHtml(String(s.targetLabel))}</b>\nFlow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
+    `${header}\n━━━━━━━━━━━━━\n👤 Target: <b>${escHtml(String(s.targetLabel))}</b>\n🔁 Flow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1444,7 +1456,7 @@ bot.on("text", async (ctx, next) => {
       const tr = await getTreasury();
       return renderAdminPanel(
         ctx,
-        `✅ <b>Added Successfully</b>\nUser: <b>${escHtml(String(s.targetLabel))}</b>\nAmount: <b>${fmt(amt)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nTreasury Left: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
+        `✅ <b>Added Successfully</b>\n• User: <b>${escHtml(String(s.targetLabel))}</b>\n• Amount: <b>${fmt(amt)}</b> ${COIN}\n• User Balance: <b>${fmt(u?.balance)}</b> ${COIN}\n• Treasury Left: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
       );
     } catch (e) {
       if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
@@ -1467,7 +1479,7 @@ bot.on("text", async (ctx, next) => {
       const tr = await getTreasury();
       return renderAdminPanel(
         ctx,
-        `✅ <b>Removed Successfully</b>\nUser: <b>${escHtml(String(s.targetLabel))}</b>\nAmount: <b>${fmt(amt)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nTreasury Now: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
+        `✅ <b>Removed Successfully</b>\n• User: <b>${escHtml(String(s.targetLabel))}</b>\n• Amount: <b>${fmt(amt)}</b> ${COIN}\n• User Balance: <b>${fmt(u?.balance)}</b> ${COIN}\n• Treasury Now: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
       );
     } catch (e) {
       if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
@@ -1526,19 +1538,23 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
   }
 }
 
-// -------------------- Callback Query (Shop + Admin + Orders) --------------------
+// -------------------- SINGLE Callback Query Router --------------------
 bot.on("callback_query", async (ctx) => {
   const data = ctx.callbackQuery?.data || "";
 
-  // ---- SHOP ----
+  // ---------- SHOP ----------
   if (data === "SHOP:REFRESH") {
     const u = await ensureUser(ctx.from);
     await ctx.answerCbQuery("Refreshed");
-    return ctx.editMessageText(shopText(u.balance), {
-      parse_mode: "HTML",
-      reply_markup: shopKeyboard(),
-      disable_web_page_preview: true,
-    });
+    try {
+      return await ctx.editMessageText(shopText(u.balance), {
+        parse_mode: "HTML",
+        reply_markup: shopKeyboard(),
+        disable_web_page_preview: true,
+      });
+    } catch (_) {
+      return replyHTML(ctx, shopText(u.balance), { reply_markup: shopKeyboard() });
+    }
   }
 
   if (data.startsWith("BUY:")) {
@@ -1551,10 +1567,8 @@ bot.on("callback_query", async (ctx) => {
 
     const receiptCode = genReceiptCode();
     try {
-      // deduct user -> treasury
       await userPayToTreasury(ctx.from.id, item.price, { type: "shop_buy", itemId: item.id, itemName: item.name });
 
-      // create order (starts as PENDING, admin can mark PAID then DELIVERED)
       const ins = await orders.insertOne({
         userId: ctx.from.id,
         username: ctx.from.username ? ctx.from.username.toLowerCase() : null,
@@ -1572,7 +1586,6 @@ bot.on("callback_query", async (ctx) => {
       const u = await getUser(ctx.from.id);
       await ctx.answerCbQuery("✅ Order created!");
 
-      // user receipt message
       return replyHTML(
         ctx,
         `✅ <b>Order Created</b>\n━━━━━━━━━━━━━━━\n` +
@@ -1586,7 +1599,6 @@ bot.on("callback_query", async (ctx) => {
           `📌 Admin က confirm / deliver လုပ်ပြီးရင် DM နဲ့ အကြောင်းကြားပေးပါမယ်။`
       );
     } catch (e) {
-      // ✅ Shop insufficient: detailed message + alert
       if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
         const u = await getUser(ctx.from.id);
         const bal = toNum(u?.balance);
@@ -1610,13 +1622,12 @@ bot.on("callback_query", async (ctx) => {
             `• Shop: <code>/shop</code>`
         );
       }
-
       console.error("BUY error:", e);
       return ctx.answerCbQuery("Error", { show_alert: true });
     }
   }
 
-  // ---- ADMIN ----
+  // ---------- ADMIN ----------
   if (data.startsWith("ADMIN:")) {
     const t = await ensureTreasury();
     if (!isOwner(ctx, t)) {
@@ -1676,26 +1687,28 @@ bot.on("callback_query", async (ctx) => {
         })
         .join("\n\n");
 
-      // show list + quick open buttons
       const panel =
         `🧾 <b>Orders (PENDING / PAID)</b>\n━━━━━━━━━━━━━━━\n` +
         `${lines}\n` +
         `━━━━━━━━━━━━━━━\n` +
         `Tap an order below to manage:`;
 
-      // We edit admin panel message with an order list keyboard (single message UI)
-      return ctx.editMessageText(panel, {
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-        reply_markup: adminOrdersKeyboard(list),
-      });
+      try {
+        return await ctx.editMessageText(panel, {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_markup: adminOrdersKeyboard(list),
+        });
+      } catch (_) {
+        return replyHTML(ctx, panel, { reply_markup: adminOrdersKeyboard(list) });
+      }
     }
 
     await ctx.answerCbQuery("OK");
     return;
   }
 
-  // ---- ORDER ACTIONS (Owner only) ----
+  // ---------- ORDER ACTIONS (Owner only) ----------
   if (data.startsWith("ORDER:")) {
     const t = await ensureTreasury();
     if (!isOwner(ctx, t)) {
@@ -1713,20 +1726,26 @@ bot.on("callback_query", async (ctx) => {
       try {
         oid = new ObjectId(id);
       } catch (_) {
-        return ctx.editMessageText("Invalid Order ID", { reply_markup: adminKeyboard() });
+        return ctx.answerCbQuery("Invalid Order ID", { show_alert: true });
       }
       const o = await orders.findOne({ _id: oid });
-      if (!o) return ctx.editMessageText("Order not found", { reply_markup: adminKeyboard() });
+      if (!o) return ctx.answerCbQuery("Order not found", { show_alert: true });
+
       const text = orderReceiptText(o) + "\nSelect action:";
-      return ctx.editMessageText(text, {
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-        reply_markup: orderActionKeyboard(String(o._id)),
-      });
+      try {
+        return await ctx.editMessageText(text, {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_markup: orderActionKeyboard(String(o._id)),
+        });
+      } catch (_) {
+        return replyHTML(ctx, text, { reply_markup: orderActionKeyboard(String(o._id)) });
+      }
     }
 
     if (action === "PAID" || action === "DELIVERED" || action === "CANCEL") {
       await ctx.answerCbQuery("Working...");
+
       let oid = null;
       try {
         oid = new ObjectId(id);
@@ -1737,7 +1756,7 @@ bot.on("callback_query", async (ctx) => {
       const o = await orders.findOne({ _id: oid });
       if (!o) return ctx.answerCbQuery("Order not found", { show_alert: true });
 
-      // status rules
+      // ---- PAID ----
       if (action === "PAID") {
         if (o.status === ORDER_STATUS.CANCELLED || o.status === ORDER_STATUS.DELIVERED) {
           return ctx.answerCbQuery("Already closed", { show_alert: true });
@@ -1760,6 +1779,7 @@ bot.on("callback_query", async (ctx) => {
         });
       }
 
+      // ---- DELIVERED ----
       if (action === "DELIVERED") {
         if (o.status === ORDER_STATUS.CANCELLED) return ctx.answerCbQuery("Cancelled order", { show_alert: true });
 
@@ -1775,21 +1795,20 @@ bot.on("callback_query", async (ctx) => {
         await notifyUserOrderUpdate(updated, "📦 Order ကို <b>DELIVERED</b> လုပ်ပြီးပါပြီ။ ကျေးဇူးတင်ပါတယ်။");
 
         const text = orderReceiptText(updated) + "\n📦 Delivered.";
-        // delivered is final: show back button to admin panel
         return ctx.editMessageText(text, {
           parse_mode: "HTML",
           disable_web_page_preview: true,
           reply_markup: {
-            inline_keyboard: [[{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]],
+            inline_keyboard: [[{ text: "⬅️ Back to Orders", callback_data: "ADMIN:ORDERS" }]],
           },
         });
       }
 
+      // ---- CANCEL + REFUND ----
       if (action === "CANCEL") {
         if (o.status === ORDER_STATUS.CANCELLED) return ctx.answerCbQuery("Already cancelled", { show_alert: true });
         if (o.status === ORDER_STATUS.DELIVERED) return ctx.answerCbQuery("Already delivered", { show_alert: true });
 
-        // refund user from treasury
         try {
           await treasuryPayToUser(o.userId, o.price, {
             type: "order_refund",
@@ -1824,7 +1843,7 @@ bot.on("callback_query", async (ctx) => {
           parse_mode: "HTML",
           disable_web_page_preview: true,
           reply_markup: {
-            inline_keyboard: [[{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]],
+            inline_keyboard: [[{ text: "⬅️ Back to Orders", callback_data: "ADMIN:ORDERS" }]],
           },
         });
       }
@@ -1872,6 +1891,7 @@ let server = null;
     console.log(`🕒 TZ env: ${TZ}`);
     console.log(`🛡️ Owner ID (env): ${OWNER_ID}`);
     console.log(`🧩 TX supported: ${TX_SUPPORTED}`);
+    console.log(`🎰 MAX_ACTIVE_SLOTS: ${MAX_ACTIVE_SLOTS}`);
   });
 
   console.log("🤖 Bot started (Webhook mode)");
