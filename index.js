@@ -9,7 +9,7 @@
  * ✅ /dailyclaim group only (Yangon day) 50~100 (ONLY if treasury has balance)
  * ✅ .slot 100 (group) animated edit UI
  *    - ✅ Multi play supported: each user gets their own animation message (reply to their command)
- *    - ✅ MAX_ACTIVE_SLOTS = 15 (global concurrent spins limit)
+ *    - ✅ MAX_ACTIVE_SLOTS = 15 (global active spins)
  * ✅ /setrtp 90 + /rtp payout pro table
  * ✅ /shop inline buy -> Orders
  *    - ✅ Order status: PENDING → PAID / DELIVERED / CANCELLED
@@ -17,12 +17,17 @@
  *    - ✅ User gets “Order ID + Receipt”
  *    - ✅ If balance insufficient: show detailed lack message (not only alert)
  * ✅ /gift @user amount OR reply /gift amount
- * ✅ Reply .gift 200 (from mention → to mention)
- * ✅ .top10 players (Rank badge + emoji + crown UI)
- * ✅ /broadcast (Owner only, DM all users, safe rate-limit)
+ * ✅ .gift (reply) amount  => reply .gift 200  (From mention -> To mention)
  * ✅ /addbalance /removebalance (owner, reply/@/id)
  * ✅ /admin inline dashboard + guided input
- * ✅ .mybalance (group only) Pro+ wallet rank system
+ * ✅ .mybalance (group only) Pro+ wallet rank system (better badge UI)
+ * ✅ .top10 players + /top10 (leaderboard)
+ * ✅ /broadcast (owner only) — text or reply broadcast
+ * ✅ 🎲 PVP Dice (Option A)
+ *    - ✅ .dice 200 -> Challenge + Accept button
+ *    - ✅ Winner gets pot 98% (2% house cut)
+ *    - ✅ Final message shows “House cut: 2%”
+ *    - ✅ Timeout auto-cancel
  *
  * NOTE:
  * - Webhook mode on Render: DO NOT call bot.launch() and DO NOT call bot.stop()
@@ -59,6 +64,7 @@ let TX_SUPPORTED = true;
 
 // -------------------- UI helpers (HTML) --------------------
 const COIN = "MMK";
+const HOUSE_CUT_PERCENT = 0.02;
 
 function escHtml(s) {
   return String(s ?? "")
@@ -91,33 +97,33 @@ function mentionHtml(tg) {
   return `<a href="tg://user?id=${id}">${escHtml(name)}</a>`;
 }
 
-// -------------------- Telegram 429 Safe Layer --------------------
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function is429(err) {
-  const code = err?.response?.error_code;
-  const desc = String(err?.response?.description || err?.message || "");
-  return code === 429 || desc.includes("Too Many Requests");
-}
-function retryAfterSec(err) {
-  const n = err?.response?.parameters?.retry_after;
-  if (Number.isFinite(n)) return n;
-  const m = String(err?.message || "").match(/retry after (\d+)/i);
-  if (m) return Number(m[1]);
-  return null;
+function getRetryAfterSec(err) {
+  const retry = err?.response?.parameters?.retry_after;
+  const m = String(err?.message || err);
+  if (typeof retry === "number" && retry > 0) return retry;
+  const match = m.match(/retry after (\d+)/i);
+  if (match) return Number(match[1]) || 0;
+  return 0;
 }
 
-async function safeTelegramCall(fn, maxTries = 3) {
+async function safeTelegram(fn, { maxRetries = 3 } = {}) {
   let lastErr = null;
-  for (let i = 0; i < maxTries; i++) {
+  for (let i = 0; i < maxRetries; i++) {
     try {
       return await fn();
     } catch (e) {
       lastErr = e;
-      if (!is429(e)) throw e;
-      const ra = retryAfterSec(e);
-      const waitMs = Math.min(35000, Math.max(1000, (ra ? ra : 5) * 1000));
-      await sleep(waitMs);
+      const retryAfter = getRetryAfterSec(e);
+      // Telegram 429
+      if (String(e?.message || e).includes("429") || retryAfter > 0) {
+        const waitMs = Math.max(1000, (retryAfter || 2) * 1000) + Math.floor(Math.random() * 350);
+        await sleep(waitMs);
+        continue;
+      }
+      // Other error: do not loop too much
+      break;
     }
   }
   throw lastErr;
@@ -125,19 +131,12 @@ async function safeTelegramCall(fn, maxTries = 3) {
 
 async function replyHTML(ctx, html, extra = {}) {
   try {
-    return await safeTelegramCall(
-      () =>
-        ctx.reply(html, {
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-          ...extra,
-        }),
-      3
+    return await safeTelegram(() =>
+      ctx.reply(html, { parse_mode: "HTML", disable_web_page_preview: true, ...extra })
     );
   } catch (e) {
-    // fallback plain text
     try {
-      return await safeTelegramCall(() => ctx.reply(String(html).replace(/<[^>]+>/g, ""), extra), 2);
+      return await safeTelegram(() => ctx.reply(String(html).replace(/<[^>]+>/g, ""), extra));
     } catch (_) {
       return null;
     }
@@ -146,34 +145,14 @@ async function replyHTML(ctx, html, extra = {}) {
 
 async function editHTML(ctx, chatId, messageId, html, extra = {}) {
   try {
-    return await safeTelegramCall(
-      () =>
-        ctx.telegram.editMessageText(chatId, messageId, undefined, html, {
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-          ...extra,
-        }),
-      3
+    return await safeTelegram(() =>
+      ctx.telegram.editMessageText(chatId, messageId, undefined, html, {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        ...extra,
+      })
     );
-  } catch (_) {
-    return null;
-  }
-}
-
-async function sendHTMLTo(chatId, html, extra = {}) {
-  try {
-    return await safeTelegramCall(
-      () =>
-        bot.telegram.sendMessage(chatId, html, {
-          parse_mode: "HTML",
-          disable_web_page_preview: true,
-          ...extra,
-        }),
-      3
-    );
-  } catch (_) {
-    return null;
-  }
+  } catch (_) {}
 }
 
 // -------------------- Parsing --------------------
@@ -375,7 +354,7 @@ async function withMaybeTx(work) {
   }
 }
 
-// Mongo driver safe extraction: some versions return {value}, some return doc
+// Mongo driver safe extraction
 function extractUpdatedDoc(res) {
   if (!res) return null;
   if (res.value !== undefined) return res.value;
@@ -409,14 +388,7 @@ async function treasuryPayToUser(toUserId, amount, meta = {}) {
 
     const txOpts = session ? { session } : {};
     await txs.insertOne(
-      {
-        type: meta.type || "treasury_pay",
-        fromUserId: "TREASURY",
-        toUserId,
-        amount: amt,
-        meta,
-        createdAt: new Date(),
-      },
+      { type: meta.type || "treasury_pay", fromUserId: "TREASURY", toUserId, amount: amt, meta, createdAt: new Date() },
       txOpts
     );
   });
@@ -448,14 +420,7 @@ async function userPayToTreasury(fromUserId, amount, meta = {}) {
 
     const txOpts = session ? { session } : {};
     await txs.insertOne(
-      {
-        type: meta.type || "treasury_receive",
-        fromUserId,
-        toUserId: "TREASURY",
-        amount: amt,
-        meta,
-        createdAt: new Date(),
-      },
+      { type: meta.type || "treasury_receive", fromUserId, toUserId: "TREASURY", amount: amt, meta, createdAt: new Date() },
       txOpts
     );
   });
@@ -486,10 +451,7 @@ async function transferBalance(fromUserId, toUserId, amount, meta = {}) {
     );
 
     const txOpts = session ? { session } : {};
-    await txs.insertOne(
-      { type: meta.type || "gift", fromUserId, toUserId, amount: amt, meta, createdAt: new Date() },
-      txOpts
-    );
+    await txs.insertOne({ type: "gift", fromUserId, toUserId, amount: amt, meta, createdAt: new Date() }, txOpts);
   });
 }
 
@@ -497,7 +459,7 @@ async function transferBalance(fromUserId, toUserId, amount, meta = {}) {
 bot.command("settotal", async (ctx) => {
   const amount = parseAmount(ctx.message?.text || "");
   if (!amount || amount <= 0) {
-    return replyHTML(ctx, `🏦 <b>Treasury Settings</b>\n━━━━━━━━━━\nUsage: <code>/settotal 5000000</code>`);
+    return replyHTML(ctx, `🏦 <b>Treasury Settings</b>\n━━━━━━━━━━━━━━\nUsage: <code>/settotal 5000000</code>`);
   }
   const r = await setTotalSupply(ctx, amount);
   if (!r.ok) return replyHTML(ctx, "⛔ Owner only command.");
@@ -505,7 +467,7 @@ bot.command("settotal", async (ctx) => {
   const tt = await getTreasury();
   return replyHTML(
     ctx,
-    `🏦 <b>Treasury Initialized</b>\n━━━━━━━━━━\n• Total Supply: <b>${fmt(tt.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tt.ownerBalance)}</b> ${COIN}`
+    `🏦 <b>Treasury Initialized</b>\n━━━━━━━━━━━━━━\n• Total Supply: <b>${fmt(tt.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tt.ownerBalance)}</b> ${COIN}`
   );
 });
 
@@ -515,7 +477,7 @@ bot.command("treasury", async (ctx) => {
   const tr = await getTreasury();
   return replyHTML(
     ctx,
-    `🏦 <b>Treasury Dashboard</b>\n━━━━━━━━━━\n• Total Supply: <b>${fmt(tr.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tr.ownerBalance)}</b> ${COIN}\n• Timezone: <b>${escHtml(TZ)}</b>\n• Owner ID: <code>${tr.ownerUserId}</code>`
+    `🏦 <b>Treasury Dashboard</b>\n━━━━━━━━━━━━━━\n• Total Supply: <b>${fmt(tr.totalSupply)}</b> ${COIN}\n• Owner Balance: <b>${fmt(tr.ownerBalance)}</b> ${COIN}\n• Timezone: <b>${escHtml(TZ)}</b>\n• Owner ID: <code>${tr.ownerUserId}</code>`
   );
 });
 
@@ -531,7 +493,7 @@ bot.start(async (ctx) => {
     if (toNum(tr?.ownerBalance) < START_BONUS) {
       return replyHTML(
         ctx,
-        `⚠️ <b>Treasury မသတ်မှတ်ရသေးပါ</b>\n━━━━━━━━━━━\nOwner က <code>/settotal 5000000</code> လုပ်ပြီးမှ Welcome Bonus ပေးနိုင်ပါတယ်။`
+        `⚠️ <b>Treasury မသတ်မှတ်ရသေးပါ</b>\n━━━━━━━━━━━━━━━━━━━━\nOwner က <code>/settotal 5000000</code> လုပ်ပြီးမှ Welcome Bonus ပေးနိုင်ပါတယ်။`
       );
     }
 
@@ -542,12 +504,12 @@ bot.start(async (ctx) => {
       const updated = await getUser(ctx.from.id);
       return replyHTML(
         ctx,
-        `🎉 <b>Welcome Bonus</b>\n━━━━━━━━━━━\n` +
+        `🎉 <b>Welcome Bonus</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
           `👤 ${mentionHtml(ctx.from)}\n` +
           `➕ Bonus: <b>${fmt(START_BONUS)}</b> ${COIN}\n` +
           `💼 Balance: <b>${fmt(updated?.balance)}</b> ${COIN}\n` +
-          `━━━━━━━━━━━\n` +
-          `Group Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.mybalance</code>\n• <code>.top10 players</code>\n• <code>/shop</code>`
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `Group Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.dice 200</code>\n• <code>.mybalance</code>\n• <code>.top10</code>\n• <code>/shop</code>`
       );
     } catch (e) {
       if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
@@ -560,7 +522,7 @@ bot.start(async (ctx) => {
 
   return replyHTML(
     ctx,
-    `👋 <b>Welcome back</b>\n━━━━━━━━━━━\nGroup Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.mybalance</code>\n• <code>.top10 players</code>\n• <code>/shop</code>`
+    `👋 <b>Welcome back</b>\n━━━━━━━━━━━━━━━━━━━━\nGroup Commands:\n• <code>/dailyclaim</code>\n• <code>.slot 100</code>\n• <code>.dice 200</code>\n• <code>.mybalance</code>\n• <code>.top10</code>\n• <code>/shop</code>`
   );
 });
 
@@ -590,7 +552,7 @@ bot.command("dailyclaim", async (ctx) => {
   if (last && last >= todayStart) {
     return replyHTML(
       ctx,
-      `⏳ <b>Daily Claim</b>\n━━━━━━━━━━━━━━\nဒီနေ့ claim လုပ်ပြီးသားပါ။\nYangon time နဲ့ နေ့သစ်ဝင်ပြီးမှ ပြန် claim လုပ်နိုင်ပါတယ်။`
+      `⏳ <b>Daily Claim</b>\n━━━━━━━━━━━━━━━━━━━━\nဒီနေ့ claim လုပ်ပြီးသားပါ။\nYangon time နဲ့ နေ့သစ်ဝင်ပြီးမှ ပြန် claim လုပ်နိုင်ပါတယ်။`
     );
   }
 
@@ -607,7 +569,7 @@ bot.command("dailyclaim", async (ctx) => {
     const updated = await getUser(ctx.from.id);
     return replyHTML(
       ctx,
-      `🎁 <b>Daily Claim Success</b>\n━━━━━━━━━━━━\n` +
+      `🎁 <b>Daily Claim Success</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
         `👤 ${mentionHtml(ctx.from)}\n` +
         `➕ Reward: <b>${fmt(amount)}</b> ${COIN}\n` +
         `💼 Balance: <b>${fmt(updated?.balance)}</b> ${COIN}\n` +
@@ -620,22 +582,22 @@ bot.command("dailyclaim", async (ctx) => {
   }
 });
 
-// -------------------- Rank / Wallet helpers --------------------
+// -------------------- Rank / Wallet UI --------------------
 function getBalanceRank(balance) {
   const b = toNum(balance);
-  if (b === 0) return { title: "ဖင်ပြောင်ငမွဲ အဆင့်", badge: "🪫", color: "⚪" };
-  if (b <= 500) return { title: "ဆင်းရဲသား အိမ်ခြေမဲ့ အဆင့်", badge: "🥀", color: "🟤" };
-  if (b <= 1000) return { title: "အိမ်ပိုင်ဝန်းပိုင် ဆင်းရဲသားအဆင့်", badge: "🏚️", color: "🟠" };
-  if (b <= 5000) return { title: "လူလတ်တန်းစားအဆင့်", badge: "🏘️", color: "🟢" };
-  if (b <= 10000) return { title: "သူဌေးပေါက်စ အဆင့်", badge: "💼", color: "🔵" };
-  if (b <= 100000) return { title: "သိန်းကြွယ်သူဌေး အဆင့်", badge: "💰", color: "🟣" };
-  if (b <= 1000000) return { title: "သန်းကြွယ်သူဌေးအကြီးစား အဆင့်", badge: "🏦", color: "🟡" };
-  if (b <= 50000000) return { title: "ကုဋေရှစ်ဆယ် သူဌေးကြီး အဆင့်", badge: "👑", color: "🟠" };
-  return { title: "ကုဋေရှစ်ဆယ် သူဌေးအကြီးစား အဆင့်", badge: "👑✨", color: "🟥" };
+  if (b === 0) return { tier: 0, title: "ဖင်ပြောင်ငမွဲ", badge: "🪫", crown: "⚪", aura: "▫️" };
+  if (b <= 500) return { tier: 1, title: "ဆင်းရဲသား", badge: "🥀", crown: "🟤", aura: "🟤" };
+  if (b <= 1000) return { tier: 2, title: "အိမ်ခြေမဲ့", badge: "🏚️", crown: "🟠", aura: "🟠" };
+  if (b <= 5000) return { tier: 3, title: "လူလတ်တန်းစား", badge: "🏘️", crown: "🟢", aura: "🟢" };
+  if (b <= 10000) return { tier: 4, title: "သူဌေးပေါက်စ", badge: "💼", crown: "🔵", aura: "🔵" };
+  if (b <= 100000) return { tier: 5, title: "သိန်းကြွယ်", badge: "💰", crown: "🟣", aura: "🟣" };
+  if (b <= 1000000) return { tier: 6, title: "သန်းကြွယ်", badge: "🏦", crown: "🟡", aura: "🟡" };
+  if (b <= 50000000) return { tier: 7, title: "ကုဋေသူဌေးကြီး", badge: "👑", crown: "🟠", aura: "🟠" };
+  return { tier: 8, title: "Legendary Tycoon", badge: "👑✨", crown: "🟥", aura: "🟥" };
 }
 
-function progressBar(current, min, max, blocks = 10) {
-  if (max <= min) return "██████████";
+function progressBar(current, min, max, blocks = 12) {
+  if (max <= min) return "████████████";
   const ratio = Math.max(0, Math.min(1, (current - min) / (max - min)));
   const filled = Math.round(ratio * blocks);
   return "█".repeat(filled) + "░".repeat(blocks - filled);
@@ -654,7 +616,6 @@ function getRankRange(balance) {
   return { min: 50000001, max: b };
 }
 
-// -------------------- .mybalance (GROUP ONLY) --------------------
 bot.hears(/^\.(mybalance|bal)\s*$/i, async (ctx) => {
   if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.mybalance</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
 
@@ -663,86 +624,154 @@ bot.hears(/^\.(mybalance|bal)\s*$/i, async (ctx) => {
 
   const rank = getBalanceRank(bal);
   const range = getRankRange(bal);
-  const bar = range.max === range.min ? "██████████" : progressBar(bal, range.min, range.max, 10);
+  const bar = range.max === range.min ? "████████████" : progressBar(bal, range.min, range.max, 12);
+
+  const header =
+    `${rank.badge} <b>BIKA Pro+ Wallet</b> ${rank.crown}\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n`;
 
   const msg =
-    `💼 <b>BIKA Pro+ Wallet</b>\n` +
-    `━━━━━━━━━━━━━\n` +
+    header +
     `👤 ${mentionHtml(ctx.from)}\n` +
     `🪙 Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
-    `━━━━━━━━━━━━━\n` +
-    `${rank.badge} <b>Rank:</b> ${escHtml(rank.title)}\n` +
-    `${rank.color} <b>Progress:</b> <code>${escHtml(bar)}</code>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `🏷️ Rank: <b>${escHtml(rank.title)}</b>\n` +
+    `${rank.aura} Progress: <code>${escHtml(bar)}</code>\n` +
     `📌 Range: <b>${fmt(range.min)}</b> → <b>${fmt(range.max)}</b> ${COIN}\n` +
-    `━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)`;
 
-  return replyHTML(ctx, msg, { reply_to_message_id: ctx.message?.message_id });
+  return replyHTML(ctx, msg);
 });
 
-// -------------------- .top10 players (Rank badge + crown UI) --------------------
-function crownEmoji(i) {
-  if (i === 0) return "👑🥇";
+// -------------------- Top10 Leaderboard --------------------
+function topBadge(i) {
+  if (i === 0) return "🥇👑";
   if (i === 1) return "🥈";
   if (i === 2) return "🥉";
-  return "🏅";
-}
-function top10Line(u, i) {
-  const name =
-    u.userId
-      ? `<a href="tg://user?id=${u.userId}">${escHtml(u.firstName || u.username || "Player")}</a>`
-      : `<b>${escHtml(u.firstName || u.username || "Player")}</b>`;
-  const rank = getBalanceRank(u.balance);
-  const crown = crownEmoji(i);
-  return `${crown} <b>#${i + 1}</b> ${name}\n   ${rank.badge} ${escHtml(rank.title)}  •  🪙 <b>${fmt(u.balance)}</b> ${COIN}`;
+  if (i < 10) return "🏅";
+  return "•";
 }
 
-bot.hears(/^\.(top10)\s+players\s*$/i, async (ctx) => {
-  if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.top10 players</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
+bot.hears(/^\.(top10)(\s+players)?\s*$/i, async (ctx) => {
+  if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.top10</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
 
-  const list = await users
-    .find({ balance: { $gt: 0 } })
-    .sort({ balance: -1 })
-    .limit(10)
-    .toArray();
+  const list = await users.find({}).sort({ balance: -1 }).limit(10).toArray();
+  if (!list.length) return replyHTML(ctx, "📊 Top10 မရှိသေးပါ။");
 
-  if (!list.length) {
+  const lines = list.map((u, idx) => {
+    const name = u.username ? `@${escHtml(u.username)}` : `<code>${u.userId}</code>`;
+    const r = getBalanceRank(u.balance);
+    return `${topBadge(idx)} <b>#${idx + 1}</b> ${r.badge} ${name} — <b>${fmt(u.balance)}</b> ${COIN}`;
+  });
+
+  const msg =
+    `📊 <b>BIKA • Top 10 Players</b>\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    lines.join("\n") +
+    `\n━━━━━━━━━━━━━━━━━━━━\n` +
+    `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)`;
+
+  return replyHTML(ctx, msg);
+});
+
+bot.command("top10", async (ctx) => {
+  const fakeCtx = { ...ctx, message: { ...(ctx.message || {}), text: ".top10" } };
+  return bot.handleUpdate({ update_id: Date.now(), message: fakeCtx.message }, ctx.res);
+});
+
+// -------------------- Broadcast (Owner only) --------------------
+bot.command("broadcast", async (ctx) => {
+  const t = await ensureTreasury();
+  if (!isOwner(ctx, t)) return replyHTML(ctx, "⛔ Owner only.");
+
+  let text = (ctx.message?.text || "").replace(/^\/broadcast(@\w+)?\s*/i, "").trim();
+  if (!text) {
+    const rep = ctx.message?.reply_to_message;
+    if (rep?.text) text = rep.text;
+    else if (rep?.caption) text = rep.caption;
+  }
+
+  if (!text) {
     return replyHTML(
       ctx,
-      `🏆 <b>Top 10 Players</b>\n━━━━━━━━━━\n` +
-        `မရှိသေးပါ။ ပထမဆုံး coin ရရှိအောင် /dailyclaim သို့ .slot ဆော့ကြပါ။`,
-      { reply_to_message_id: ctx.message?.message_id }
+      `📣 <b>Broadcast</b>\n━━━━━━━━━━━━━━━━\n` +
+        `Usage:\n• <code>/broadcast မင်္ဂလာပါ...</code>\n• (or) Reply to a message + <code>/broadcast</code>\n━━━━━━━━━━━━━━━━`
     );
   }
 
-  const lines = list.map((u, i) => top10Line(u, i)).join("\n\n");
+  const cursor = users.find({}, { projection: { userId: 1 } });
+  let ok = 0, fail = 0;
 
-  return replyHTML(
-    ctx,
-    `🏆 <b>BIKA Leaderboard — Top 10</b>\n━━━━━━━━━━\n${lines}\n━━━━━━━━━━\n🕒 ${escHtml(formatYangon(new Date()))} (Yangon)`,
-    { reply_to_message_id: ctx.message?.message_id }
-  );
+  await replyHTML(ctx, `📣 Broadcasting…\nTarget: users collection`);
+
+  while (await cursor.hasNext()) {
+    const u = await cursor.next();
+    try {
+      await safeTelegram(() =>
+        bot.telegram.sendMessage(u.userId, `📣 <b>BIKA Broadcast</b>\n━━━━━━━━━━━━━━━━\n${escHtml(text)}`, {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+        }),
+        { maxRetries: 3 }
+      );
+      ok++;
+    } catch (_) {
+      fail++;
+    }
+    // small pacing
+    await sleep(35);
+  }
+
+  return replyHTML(ctx, `✅ Broadcast done.\n• Sent: <b>${ok}</b>\n• Failed: <b>${fail}</b>`);
 });
 
 // -------------------- Gift (User -> User) --------------------
 const GIFT_COOLDOWN_MS = 10_000;
 const lastGiftAt = new Map();
 
-bot.command("gift", async (ctx) => {
+async function doGift(ctx, toUserId, amount, toLabelHtml) {
   const fromTg = ctx.from;
-  if (!fromTg) return;
-
   const last = lastGiftAt.get(fromTg.id) || 0;
   if (Date.now() - last < GIFT_COOLDOWN_MS) {
     const sec = Math.ceil((GIFT_COOLDOWN_MS - (Date.now() - last)) / 1000);
-    return replyHTML(ctx, `⏳ ခဏစောင့်ပါ… (${sec}s) နောက်တစ်ခါ <code>/gift</code> လုပ်နိုင်ပါမယ်။`);
+    return replyHTML(ctx, `⏳ ခဏစောင့်ပါ… (${sec}s) နောက်တစ်ခါ gift လုပ်နိုင်ပါမယ်။`, {
+      reply_to_message_id: ctx.message?.message_id,
+    });
   }
+
+  try {
+    await transferBalance(fromTg.id, toUserId, Math.floor(amount), { chatId: ctx.chat?.id });
+    lastGiftAt.set(fromTg.id, Date.now());
+
+    const updatedFrom = await getUser(fromTg.id);
+    const fromHtml = mentionHtml(fromTg);
+
+    return replyHTML(
+      ctx,
+      `🎁 <b>Gift Success</b>\n━━━━━━━━━━━━━━━━\n` +
+        `From: ${fromHtml}\n` +
+        `To: ${toLabelHtml}\n` +
+        `Amount: <b>${fmt(amount)}</b> ${COIN}\n` +
+        `Your Balance: <b>${fmt(updatedFrom?.balance)}</b> ${COIN}`,
+      { reply_to_message_id: ctx.message?.message_id }
+    );
+  } catch (e) {
+    if (String(e?.message || e).includes("INSUFFICIENT")) return replyHTML(ctx, "❌ Balance မလုံလောက်ပါ။", { reply_to_message_id: ctx.message?.message_id });
+    console.error("gift error:", e);
+    return replyHTML(ctx, "⚠️ Error ဖြစ်သွားပါတယ်။", { reply_to_message_id: ctx.message?.message_id });
+  }
+}
+
+bot.command("gift", async (ctx) => {
+  const fromTg = ctx.from;
+  if (!fromTg) return;
 
   const amount = parseAmount(ctx.message?.text || "");
   if (!amount || amount <= 0) {
     return replyHTML(
       ctx,
-      `🎁 <b>Gift Usage</b>\n━━━━━━━━━━\n• Reply +  <code>/gift 500</code>\n• Mention  <code>/gift @username 500</code>`
+      `🎁 <b>Gift Usage</b>\n━━━━━━━━━━━━━━\n• Reply + <code>/gift 500</code>\n• Mention + <code>/gift @username 500</code>\n• Reply + <code>.gift 500</code> (group)`
     );
   }
 
@@ -762,148 +791,35 @@ bot.command("gift", async (ctx) => {
     const uname = parseMentionUsername(ctx.message?.text || "");
     if (!uname) return replyHTML(ctx, "👤 Reply (/gift 500) သို့ /gift @username 500 သုံးပါ။");
     const toU = await getUserByUsername(uname);
-    if (!toU)
-      return replyHTML(ctx, "⚠️ ဒီ @username ကို မတွေ့ပါ။ (သူ bot ကို /start လုပ်ထားရမယ်) သို့ Reply နဲ့ gift ပို့ပါ။");
+    if (!toU) return replyHTML(ctx, "⚠️ ဒီ @username ကို မတွေ့ပါ။ (သူ bot ကို /start လုပ်ထားရမယ်) သို့ Reply နဲ့ gift ပို့ပါ။");
     if (toU.userId === fromTg.id) return replyHTML(ctx, "😅 ကိုယ့်ကိုကိုယ် gift မပို့နိုင်ပါ။");
     toUserId = toU.userId;
     toLabelHtml = `@${escHtml(uname)}`;
   }
 
-  try {
-    await transferBalance(fromTg.id, toUserId, Math.floor(amount), { chatId: ctx.chat?.id, by: "slash_gift" });
-    lastGiftAt.set(fromTg.id, Date.now());
-    const updatedFrom = await getUser(fromTg.id);
-
-    return replyHTML(
-      ctx,
-      `✅ <b>Gift Sent</b>\n━━━━━━━━━━━\n🎁 To: ${toLabelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nYour Balance: <b>${fmt(updatedFrom?.balance)}</b> ${COIN}`
-    );
-  } catch (e) {
-    if (String(e?.message || e).includes("INSUFFICIENT")) return replyHTML(ctx, "❌ Balance မလုံလောက်ပါ။");
-    console.error("gift error:", e);
-    return replyHTML(ctx, "⚠️ Error ဖြစ်သွားပါတယ်။");
-  }
+  return doGift(ctx, toUserId, amount, toLabelHtml);
 });
 
-// -------------------- Reply .gift (from mention → to mention) --------------------
-// Usage: Reply someone's message + .gift 200
+// ✅ Reply .gift 200  (group)
 bot.hears(/^\.(gift)\s+(\d+)\s*$/i, async (ctx) => {
   if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.gift</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
 
-  const fromTg = ctx.from;
-  if (!fromTg) return;
+  const bet = parseInt(ctx.match[2], 10);
+  if (!Number.isFinite(bet) || bet <= 0) return;
 
   const replyFrom = ctx.message?.reply_to_message?.from;
   if (!replyFrom?.id) {
-    return replyHTML(
-      ctx,
-      `🎁 <b>Quick Gift</b>\n━━━━━━━━━━\nReply message ကို reply လုပ်ပြီး\n<code>.gift 200</code> လို့ပဲ ပို့ပါ။`,
-      { reply_to_message_id: ctx.message?.message_id }
-    );
-  }
-
-  if (replyFrom.is_bot) return replyHTML(ctx, "🤖 Bot ကို gift မပို့နိုင်ပါ။", { reply_to_message_id: ctx.message?.message_id });
-  if (replyFrom.id === fromTg.id) return replyHTML(ctx, "😅 ကိုယ့်ကိုကိုယ် gift မပို့နိုင်ပါ။", { reply_to_message_id: ctx.message?.message_id });
-
-  const amount = parseInt(ctx.match[2], 10);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return replyHTML(ctx, "⚠️ Amount မမှန်ပါ။ ဥပမာ <code>.gift 200</code>", { reply_to_message_id: ctx.message?.message_id });
-  }
-
-  const last = lastGiftAt.get(fromTg.id) || 0;
-  if (Date.now() - last < GIFT_COOLDOWN_MS) {
-    const sec = Math.ceil((GIFT_COOLDOWN_MS - (Date.now() - last)) / 1000);
-    return replyHTML(ctx, `⏳ ခဏစောင့်ပါ… (${sec}s) နောက်တစ်ခါ <code>.gift</code> လုပ်နိုင်ပါမယ်။`, {
+    return replyHTML(ctx, `⚠️ <b>Reply လုပ်ပြီးသုံးပါ</b>\n━━━━━━━━━━━━━━━━\nExample: Reply + <code>.gift 200</code>`, {
       reply_to_message_id: ctx.message?.message_id,
     });
   }
+  if (replyFrom.is_bot) return replyHTML(ctx, "🤖 Bot ကို gift မပို့နိုင်ပါ။", { reply_to_message_id: ctx.message?.message_id });
+  if (replyFrom.id === ctx.from.id) return replyHTML(ctx, "😅 ကိုယ့်ကိုကိုယ် gift မပို့နိုင်ပါ။", { reply_to_message_id: ctx.message?.message_id });
 
-  await ensureUser(fromTg);
+  await ensureUser(ctx.from);
   await ensureUser(replyFrom);
 
-  try {
-    await transferBalance(fromTg.id, replyFrom.id, Math.floor(amount), { chatId: ctx.chat?.id, by: "dot_gift" });
-    lastGiftAt.set(fromTg.id, Date.now());
-
-    const updatedFrom = await getUser(fromTg.id);
-    const updatedTo = await getUser(replyFrom.id);
-
-    return replyHTML(
-      ctx,
-      `✅ <b>Gift Success</b>\n━━━━━━━━━━\n` +
-        `From: ${mentionHtml(fromTg)}\n` +
-        `To: ${mentionHtml(replyFrom)}\n` +
-        `Amount: <b>${fmt(amount)}</b> ${COIN}\n` +
-        `━━━━━━━━━━\n` +
-        `💼 Your Balance: <b>${fmt(updatedFrom?.balance)}</b> ${COIN}\n` +
-        `🎯 Receiver Balance: <b>${fmt(updatedTo?.balance)}</b> ${COIN}`,
-      { reply_to_message_id: ctx.message?.message_id }
-    );
-  } catch (e) {
-    if (String(e?.message || e).includes("INSUFFICIENT")) {
-      return replyHTML(ctx, "❌ Balance မလုံလောက်ပါ။", { reply_to_message_id: ctx.message?.message_id });
-    }
-    console.error(".gift error:", e);
-    return replyHTML(ctx, "⚠️ Error ဖြစ်သွားပါတယ်။", { reply_to_message_id: ctx.message?.message_id });
-  }
-});
-
-// -------------------- /broadcast (Owner only, DM all users) --------------------
-bot.command("broadcast", async (ctx) => {
-  const t = await ensureTreasury();
-  if (!isOwner(ctx, t)) return replyHTML(ctx, "⛔ Owner only command.");
-
-  const replyText = ctx.message?.reply_to_message?.text;
-  const argsText = (ctx.message?.text || "").replace(/^\/broadcast(@\w+)?\s*/i, "").trim();
-  const msg = (argsText || replyText || "").trim();
-
-  if (!msg) {
-    return replyHTML(
-      ctx,
-      `📣 <b>Broadcast Usage</b>\n━━━━━━━━━━\n` +
-        `• <code>/broadcast မင်္ဂလာပါ...</code>\n` +
-        `• Reply message ကို reply လုပ်ပြီး <code>/broadcast</code>`,
-      { reply_to_message_id: ctx.message?.message_id }
-    );
-  }
-
-  const all = await users.find({ userId: { $exists: true } }).project({ userId: 1 }).toArray();
-  if (!all.length) return replyHTML(ctx, "⚠️ Users မတွေ့ပါ။", { reply_to_message_id: ctx.message?.message_id });
-
-  const startMsg = await replyHTML(
-    ctx,
-    `📣 <b>Broadcast Started</b>\n━━━━━━━━━━\nTotal Users: <b>${fmt(all.length)}</b>\nSending…`,
-    { reply_to_message_id: ctx.message?.message_id }
-  );
-
-  let ok = 0,
-    fail = 0;
-
-  for (const u of all) {
-    const uid = u.userId;
-    if (!uid || uid === OWNER_ID) continue;
-
-    const res = await sendHTMLTo(
-      uid,
-      `📣 <b>Announcement</b>\n━━━━━━━━━━\n${escHtml(msg)}\n━━━━━━━━━━\n— Admin`
-    );
-
-    if (res) ok++;
-    else fail++;
-  }
-
-  const doneText =
-    `✅ <b>Broadcast Done</b>\n━━━━━━━━━━\n` +
-    `Sent: <b>${fmt(ok)}</b>\n` +
-    `Failed: <b>${fmt(fail)}</b>\n` +
-    `Total: <b>${fmt(ok + fail)}</b>\n` +
-    `━━━━━━━━━━\n🕒 ${escHtml(formatYangon(new Date()))} (Yangon)`;
-
-  if (startMsg?.message_id) {
-    await editHTML(ctx, ctx.chat.id, startMsg.message_id, doneText);
-  } else {
-    await replyHTML(ctx, doneText);
-  }
+  return doGift(ctx, replyFrom.id, bet, mentionHtml(replyFrom));
 });
 
 // -------------------- Owner add/remove balance --------------------
@@ -955,7 +871,7 @@ bot.command("addbalance", async (ctx) => {
   if (!amount || amount <= 0) {
     return replyHTML(
       ctx,
-      `➕ <b>Add Balance (Owner)</b>\n━━━━━━━━━━\nReply mode:\n• Reply + <code>/addbalance 5000</code>\n\nExplicit:\n• <code>/addbalance @username 5000</code>\n• <code>/addbalance 123456789 5000</code>`
+      `➕ <b>Add Balance (Owner)</b>\n━━━━━━━━━━━━━━\nReply mode:\n• Reply + <code>/addbalance 5000</code>\n\nExplicit:\n• <code>/addbalance @username 5000</code>\n• <code>/addbalance 123456789 5000</code>`
     );
   }
 
@@ -969,7 +885,7 @@ bot.command("addbalance", async (ctx) => {
 
     return replyHTML(
       ctx,
-      `✅ <b>Balance Added</b>\n━━━━━━━━━━━\nUser: ${r.labelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nTreasury Left: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
+      `✅ <b>Balance Added</b>\n━━━━━━━━━━━━━━\nUser: ${r.labelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nTreasury Left: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
     );
   } catch (e) {
     if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
@@ -989,7 +905,7 @@ bot.command("removebalance", async (ctx) => {
   if (!amount || amount <= 0) {
     return replyHTML(
       ctx,
-      `➖ <b>Remove Balance (Owner)</b>\n━━━━━━━━━━━\nReply mode:\n• Reply + <code>/removebalance 5000</code>\n\nExplicit:\n• <code>/removebalance @username 5000</code>\n• <code>/removebalance 123456789 5000</code>`
+      `➖ <b>Remove Balance (Owner)</b>\n━━━━━━━━━━━━━━\nReply mode:\n• Reply + <code>/removebalance 5000</code>\n\nExplicit:\n• <code>/removebalance @username 5000</code>\n• <code>/removebalance 123456789 5000</code>`
     );
   }
 
@@ -1003,7 +919,7 @@ bot.command("removebalance", async (ctx) => {
 
     return replyHTML(
       ctx,
-      `✅ <b>Balance Removed</b>\n━━━━━━━━━━━\nUser: ${r.labelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nTreasury Now: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
+      `✅ <b>Balance Removed</b>\n━━━━━━━━━━━━\nUser: ${r.labelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nTreasury Now: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
     );
   } catch (e) {
     if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
@@ -1049,10 +965,10 @@ function shopText(balance) {
   const lines = SHOP_ITEMS.map((x) => `• ${escHtml(x.name)} — <b>${fmt(x.price)}</b> ${COIN}`).join("\n");
   return (
     `🛒 <b>BIKA Pro Shop</b>\n` +
-    `━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${lines}\n` +
-    `━━━━━━━━━━━━━\n` +
-    `Your Balance: <b>${fmt(balance)}</b> ${COIN}\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `💼 Your Balance: <b>${fmt(balance)}</b> ${COIN}\n` +
     `Select an item below:`
   );
 }
@@ -1072,14 +988,14 @@ function orderActionKeyboard(orderId) {
         { text: "📦 Mark DELIVERED", callback_data: `ORDER:DELIVERED:${orderId}` },
       ],
       [{ text: "❌ Cancel + Refund", callback_data: `ORDER:CANCEL:${orderId}` }],
-      [{ text: "⬅️ Back to Orders", callback_data: "ADMIN:ORDERS" }],
+      [{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }],
     ],
   };
 }
 
 function adminOrdersKeyboard(list) {
   const rows = [];
-  for (const o of list.slice(0, 6)) {
+  for (const o of list.slice(0, 8)) {
     const id = String(o._id);
     const label = `${o.itemName} • ${fmt(o.price)} ${COIN} • ${o.status}`;
     rows.push([{ text: `🧾 ${label}`, callback_data: `ORDER:OPEN:${id}` }]);
@@ -1096,58 +1012,57 @@ bot.command("shop", async (ctx) => {
 });
 
 // -------------------- Slot (Animated Edit UI) --------------------
+const MAX_ACTIVE_SLOTS = 15;
+const activeSlots = new Set(); // userId set
+console.log(`🎰 MAX_ACTIVE_SLOTS: ${MAX_ACTIVE_SLOTS}`);
+
 const SLOT = {
-  minBet: 20,
-  maxBet: 10000,
+  minBet: 50,
+  maxBet: 5000,
   cooldownMs: 3000,
   capPercent: 0.30,
   reels: [
     [
       { s: "🍒", w: 3200 },
-      { s: "🍋", w: 3200 },
-      { s: "🍉", w: 2200 },
+      { s: "🍋", w: 2200 },
+      { s: "🍉", w: 1200 },
       { s: "🔔", w: 1000 },
+      { s: "⭐", w: 450 },
+      { s: "BAR", w: 450 },
+      { s: "7", w: 50 },
+    ],
+    [
+      { s: "🍒", w: 2200 },
+      { s: "🍋", w: 1200 },
+      { s: "🍉", w: 3200 },
+      { s: "🔔", w: 900 },
       { s: "⭐", w: 450 },
       { s: "BAR", w: 45 },
       { s: "7", w: 5 },
     ],
     [
-      { s: "🍒", w: 3200 },
-      { s: "🍋", w: 3200 },
+      { s: "🍒", w: 3000 },
+      { s: "🍋", w: 2000 },
       { s: "🍉", w: 2200 },
-      { s: "🔔", w: 1000 },
-      { s: "⭐", w: 450 },
-      { s: "BAR", w: 45 },
-      { s: "7", w: 5 },
-    ],
-    [
-      { s: "🍒", w: 3200 },
-      { s: "🍋", w: 3200 },
-      { s: "🍉", w: 2200 },
-      { s: "🔔", w: 1000 },
-      { s: "⭐", w: 450 },
+      { s: "🔔", w: 2900 },
+      { s: "⭐", w: 1350 },
       { s: "BAR", w: 95 },
       { s: "7", w: 50 },
     ],
   ],
   payouts: {
-    "7,7,7": 35,
-    "BAR,BAR,BAR": 20,
-    "⭐,⭐,⭐": 15,
-    "🔔,🔔,🔔": 10,
-    "🍉,🍉,🍉": 6,
+    "7,7,7": 30,
+    "BAR,BAR,BAR": 10,
+    "⭐,⭐,⭐": 9,
+    "🔔,🔔,🔔": 7,
+    "🍉,🍉,🍉": 5,
     "🍋,🍋,🍋": 4,
     "🍒,🍒,🍒": 3,
-    ANY2: 1.5,
+    ANY2: 1.4,
   },
 };
 
 const lastSlotAt = new Map();
-
-// ✅ Global concurrent spin limit
-const activeSlots = new Set(); // userId set
-const MAX_ACTIVE_SLOTS = 15;   // တပြိုင်နက် max 15 spins
-console.log("🎰 MAX_ACTIVE_SLOTS:", MAX_ACTIVE_SLOTS);
 
 function weightedPick(items) {
   let total = 0;
@@ -1210,66 +1125,53 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
 
   return (
     `<b>${escHtml(vibeHeader)}</b>\n` +
-    `━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `<pre>${escHtml(art)}</pre>\n` +
-    `━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `${escHtml(sound)} ${escHtml(note)}`
   );
 }
 
-// ✅ Multi play: each call creates its own message (reply to user command)
-// ✅ Reply to user's .slot message: reply_to_message_id
 async function runSlotSpinAnimated(ctx, bet) {
   const userId = ctx.from?.id;
   if (!userId) return;
 
-  // Global concurrent protection
-  if (!activeSlots.has(userId) && activeSlots.size >= MAX_ACTIVE_SLOTS) {
+  if (activeSlots.size >= MAX_ACTIVE_SLOTS && !activeSlots.has(userId)) {
     return replyHTML(
       ctx,
-      `⛔ <b>Slot Busy</b>\n━━━━━━━━━━━━━\nအခုတပြိုင်နက် slot ဆော့နေတဲ့သူများနေပါတယ်။\nခဏလောက်စောင့်ပြီးမှ ပြန်ဆော့ပါ။`,
+      `⛔ <b>Slot Busy</b>\n━━━━━━━━━━━━━━\nအခုတလော တစ်ပြိုင်နက် ဆော့နေသူများလို့ ခဏနားပြီး ပြန်ကြိုးစားပါ။\n(Max active: <b>${MAX_ACTIVE_SLOTS}</b>)`,
       { reply_to_message_id: ctx.message?.message_id }
     );
   }
 
-  // prevent same user multi-run
-  if (activeSlots.has(userId)) {
+  const last = lastSlotAt.get(userId) || 0;
+  if (Date.now() - last < SLOT.cooldownMs) {
+    const sec = Math.ceil((SLOT.cooldownMs - (Date.now() - last)) / 1000);
+    return replyHTML(ctx, `⏳ ခဏစောင့်ပါ… (${sec}s) နောက်တစ်ခါ spin လုပ်နိုင်ပါမယ်။`, {
+      reply_to_message_id: ctx.message?.message_id,
+    });
+  }
+
+  if (bet < SLOT.minBet || bet > SLOT.maxBet) {
     return replyHTML(
       ctx,
-      `⏳ <b>Spin လုပ်နေပါတယ်</b>\n━━━━━━━━━━━━━\nသင့် spin မပြီးသေးပါ။ ခဏစောင့်ပါ…`,
+      `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`,
       { reply_to_message_id: ctx.message?.message_id }
     );
   }
+
+  await ensureUser(ctx.from);
+  await ensureTreasury();
 
   activeSlots.add(userId);
-
   try {
-    const last = lastSlotAt.get(userId) || 0;
-    if (Date.now() - last < SLOT.cooldownMs) {
-      const sec = Math.ceil((SLOT.cooldownMs - (Date.now() - last)) / 1000);
-      return replyHTML(ctx, `⏳ ခဏစောင့်ပါ… (${sec}s) နောက်တစ်ခါ spin လုပ်နိုင်ပါမယ်။`, {
-        reply_to_message_id: ctx.message?.message_id,
-      });
-    }
-
-    if (bet < SLOT.minBet || bet > SLOT.maxBet) {
-      return replyHTML(
-        ctx,
-        `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━\nUsage: <code>.slot 1000</code>\nMin: <b>${fmt(SLOT.minBet)}</b> ${COIN}\nMax: <b>${fmt(SLOT.maxBet)}</b> ${COIN}`,
-        { reply_to_message_id: ctx.message?.message_id }
-      );
-    }
-
-    await ensureUser(ctx.from);
-    await ensureTreasury();
-
     try {
       await userPayToTreasury(userId, bet, { type: "slot_bet", bet, chatId: ctx.chat?.id });
     } catch (e) {
       if (String(e?.message || e).includes("USER_INSUFFICIENT")) {
         return replyHTML(
           ctx,
-          `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━━━\nSlot ဆော့ဖို့ လက်ကျန်ငွေ မလုံလောက်ပါ။\nDaily claim / gift / addbalance နဲ့ ငွေစုဆောင်းပြီးမှ ပြန်လာပါ။`,
+          `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━━━━━━━━━\nSlot ဆော့ဖို့ လက်ကျန်ငွေ မလုံလောက်ပါ။\nDaily claim / gift / addbalance နဲ့ ငွေစုဆောင်းပြီးမှ ပြန်လာပါ။`,
           { reply_to_message_id: ctx.message?.message_id }
         );
       }
@@ -1337,7 +1239,7 @@ async function runSlotSpinAnimated(ctx, bet) {
           ctx,
           chatId,
           messageId,
-          `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
+          `🎰 <b>BIKA Pro Slot</b>\n━━━━━━━━━━━━━━\n<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n━━━━━━━━━━━━━━\n⚠️ Payout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`
         );
         lastSlotAt.set(userId, Date.now());
         return;
@@ -1351,9 +1253,9 @@ async function runSlotSpinAnimated(ctx, bet) {
 
     const finalMsg =
       `🎰 <b>BIKA Pro Slot</b>\n` +
-      `━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━\n` +
       `<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n` +
-      `━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━\n` +
       `<b>${escHtml(headline)}</b>\n` +
       `Bet: <b>${fmt(bet)}</b> ${COIN}\n` +
       `Payout: <b>${fmt(payout)}</b> ${COIN}\n` +
@@ -1463,7 +1365,7 @@ bot.command("rtp", async (ctx) => {
 
   const msg =
     `🧮 <b>Slot RTP Dashboard</b>\n` +
-    `━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━\n` +
     `Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
     `Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
     `Base RTP: <b>${(base * 100).toFixed(2)}%</b>\n` +
@@ -1471,7 +1373,7 @@ bot.command("rtp", async (ctx) => {
     `777 Odds: <b>${escHtml(odds777)}</b>\n` +
     `Cap: <b>${Math.round(SLOT.capPercent * 100)}%</b> of Treasury / spin\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
-    `━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━\n` +
     `<b>Payout Table (Bet = 1,000)</b>\n` +
     `<pre>${escHtml(renderPayoutsTable())}</pre>`;
 
@@ -1484,7 +1386,7 @@ bot.command("setrtp", async (ctx) => {
 
   const parts = (ctx.message?.text || "").trim().split(/\s+/);
   if (parts.length < 2) {
-    return replyHTML(ctx, `⚙️ <b>Set RTP</b>\n━━━━━━━━━━━━━\nUsage:\n• <code>/setrtp 90</code>\n• <code>/setrtp 0.90</code>`);
+    return replyHTML(ctx, `⚙️ <b>Set RTP</b>\n━━━━━━━━━━━━━━━━━━━━\nUsage:\n• <code>/setrtp 90</code>\n• <code>/setrtp 0.90</code>`);
   }
 
   let target = Number(parts[1]);
@@ -1505,14 +1407,14 @@ bot.command("setrtp", async (ctx) => {
 
   const msg =
     `✅ <b>RTP Updated (Owner)</b>\n` +
-    `━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━\n` +
     `Target RTP: <b>${(target * 100).toFixed(2)}%</b>\n` +
     `Old Base RTP: <b>${(before * 100).toFixed(2)}%</b>\n` +
     `New Base RTP: <b>${(after * 100).toFixed(2)}%</b>\n` +
     `Scale Factor: <b>${factor.toFixed(4)}</b>\n` +
     `777 Odds: <b>${escHtml(odds777)}</b>\n` +
     `Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
-    `━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━\n` +
     `<b>Payout Table (Bet = 1,000)</b>\n` +
     `<pre>${escHtml(renderPayoutsTable())}</pre>`;
 
@@ -1567,33 +1469,25 @@ async function renderAdminPanel(ctx, note = "") {
   const s = getAdminSession(ctx.from.id);
 
   const targetLine = s?.targetUserId
-    ? `Target: <b>${escHtml(String(s.targetLabel))}</b> (ID: <code>${s.targetUserId}</code>)`
-    : `Target: <i>Not set</i>`;
+    ? `👤 Target: <b>${escHtml(String(s.targetLabel))}</b> (ID: <code>${s.targetUserId}</code>)`
+    : `👤 Target: <i>Not set</i>`;
 
   const extra = note ? `\n${note}\n` : "\n";
 
   const text =
     `${ADMIN.panelTitle}\n` +
-    `━━━━━━━━━━\n` +
-    `Treasury Balance: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
-    `Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
+    `━━━━━━━━━━━━\n` +
+    `🏦 Treasury Balance: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
+    `📦 Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
-    `━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━\n` +
     `${targetLine}\n` +
-    `━━━━━━━━━━` +
+    `━━━━━━━━━━━━` +
     `${extra}` +
     `Choose an action below:`;
 
   if (ctx.updateType === "callback_query") {
-    return safeTelegramCall(
-      () =>
-        ctx.editMessageText(text, {
-          parse_mode: "HTML",
-          reply_markup: adminKeyboard(),
-          disable_web_page_preview: true,
-        }),
-      3
-    );
+    return ctx.editMessageText(text, { parse_mode: "HTML", reply_markup: adminKeyboard(), disable_web_page_preview: true });
   }
   return replyHTML(ctx, text, { reply_markup: adminKeyboard() });
 }
@@ -1604,7 +1498,7 @@ async function askManualTarget(ctx) {
   setAdminSession(ctx.from.id, { mode: "await_target" });
   return replyHTML(
     ctx,
-    `🔎 <b>Set Target User</b>\n━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
+    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1620,7 +1514,7 @@ async function askAmount(ctx, type) {
 
   return replyHTML(
     ctx,
-    `${header}\n━━━━━━━━━━━\nTarget: <b>${escHtml(String(s.targetLabel))}</b>\nFlow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
+    `${header}\n━━━━━━━━━━━━━━\nTarget: <b>${escHtml(String(s.targetLabel))}</b>\nFlow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1716,18 +1610,14 @@ bot.on("text", async (ctx, next) => {
 
 // -------------------- Orders helpers (Admin + User notice) --------------------
 async function getRecentOrders(statuses, limit = 10) {
-  return orders
-    .find({ status: { $in: statuses } })
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .toArray();
+  return orders.find({ status: { $in: statuses } }).sort({ createdAt: -1 }).limit(limit).toArray();
 }
 
 function orderReceiptText(o) {
   const who = o.username ? `@${escHtml(o.username)}` : `<code>${o.userId}</code>`;
   return (
     `🧾 <b>Order Receipt</b>\n` +
-    `━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━\n` +
     `Order ID: <code>${escHtml(String(o._id))}</code>\n` +
     `Receipt: <code>${escHtml(o.receiptCode || "-")}</code>\n` +
     `Item: <b>${escHtml(o.itemName)}</b>\n` +
@@ -1735,7 +1625,7 @@ function orderReceiptText(o) {
     `Status: <b>${escHtml(o.status)}</b>\n` +
     `User: ${who}\n` +
     `Time: <b>${escHtml(formatYangon(new Date(o.createdAt)))}</b> (Yangon)\n` +
-    `━━━━━━━━━━━`
+    `━━━━━━━━━━━━━`
   );
 }
 
@@ -1744,7 +1634,7 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
     const note = noteLine ? `\n${noteLine}\n` : "\n";
     const msg =
       `🧾 <b>Order Update</b>\n` +
-      `━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━\n` +
       `Order ID: <code>${escHtml(String(o._id))}</code>\n` +
       `Receipt: <code>${escHtml(o.receiptCode || "-")}</code>\n` +
       `Item: <b>${escHtml(o.itemName)}</b>\n` +
@@ -1752,35 +1642,146 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
       `Status: <b>${escHtml(o.status)}</b>\n` +
       `${note}` +
       `Time: <b>${escHtml(formatYangon(new Date()))}</b> (Yangon)`;
-    await sendHTMLTo(o.userId, msg);
+
+    await safeTelegram(() =>
+      bot.telegram.sendMessage(o.userId, msg, { parse_mode: "HTML", disable_web_page_preview: true })
+    );
   } catch (e) {
     console.log("notify user failed (maybe user blocked bot):", e?.message || e);
   }
 }
 
-// -------------------- Callback Query (Shop + Admin + Orders) --------------------
+// -------------------- 🎲 PVP Dice (Option A) --------------------
+const DICE = {
+  minBet: 50,
+  maxBet: 5000,
+  timeoutMs: 60_000,
+  maxActive: 20,
+};
+
+const activeDiceChallenges = new Map(); // challengeId -> data
+
+function makeDiceChallengeId(chatId, msgId) {
+  return `${chatId}:${msgId}`;
+}
+
+function diceChallengeKeyboard(challengeId) {
+  return {
+    inline_keyboard: [
+      [{ text: "✅ Accept Dice Duel", callback_data: `DICE:ACCEPT:${challengeId}` }],
+      [{ text: "❌ Cancel", callback_data: `DICE:CANCEL:${challengeId}` }],
+    ],
+  };
+}
+
+function diceChallengeText(challenger, bet) {
+  return (
+    `🎲 <b>Dice Duel Challenge</b>\n` +
+    `━━━━━━━━━━━━━\n` +
+    `Challenger: ${mentionHtml(challenger)}\n` +
+    `Bet: <b>${fmt(bet)}</b> ${COIN}\n` +
+    `Winner gets: <b>98%</b> (House cut: <b>2%</b>)\n` +
+    `━━━━━━━━━━━━━\n` +
+    `✅ Accept ကိုနှိပ်ပြီး ပြိုင်ပွဲဝင်ပါ။\n` +
+    `⏳ Timeout: <b>${Math.floor(DICE.timeoutMs / 1000)}s</b>`
+  );
+}
+
+async function sendDice(chatId, replyToMsgId) {
+  // Telegram dice animation
+  return safeTelegram(() => bot.telegram.sendDice(chatId, { reply_to_message_id: replyToMsgId }));
+}
+
+bot.hears(/^\.(dice)\s+(\d+)\s*$/i, async (ctx) => {
+  if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.dice</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
+  const bet = parseInt(ctx.match[2], 10);
+  if (!Number.isFinite(bet) || bet <= 0) return;
+
+  if (bet < DICE.minBet || bet > DICE.maxBet) {
+    return replyHTML(
+      ctx,
+      `🎲 <b>Dice Duel</b>\n━━━━━━━━━━━━━\nUsage: <code>.dice 200</code>\nMin: <b>${fmt(DICE.minBet)}</b> ${COIN}\nMax: <b>${fmt(DICE.maxBet)}</b> ${COIN}`,
+      { reply_to_message_id: ctx.message?.message_id }
+    );
+  }
+
+  if (activeDiceChallenges.size >= DICE.maxActive) {
+    return replyHTML(
+      ctx,
+      `⛔ <b>Dice Busy</b>\n━━━━━━━━━━━━━\nအခု Dice challenge များလွန်းနေပါတယ်။ ခဏနားပြီး ပြန်ကြိုးစားပါ။`,
+      { reply_to_message_id: ctx.message?.message_id }
+    );
+  }
+
+  await ensureUser(ctx.from);
+  const u = await getUser(ctx.from.id);
+  if (toNum(u?.balance) < bet) {
+    const lack = Math.max(0, bet - toNum(u?.balance));
+    return replyHTML(
+      ctx,
+      `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━━\nBet: <b>${fmt(bet)}</b> ${COIN}\nYour Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nNeed More: <b>${fmt(lack)}</b> ${COIN}\n━━━━━━━━━━━━━\n💡 slot / dailyclaim နဲ့ ငွေစုဆောင်းပြီးမှ ပြန်လာပါ။`,
+      { reply_to_message_id: ctx.message?.message_id }
+    );
+  }
+
+  const sent = await replyHTML(ctx, diceChallengeText(ctx.from, bet), {
+    reply_markup: { inline_keyboard: [[{ text: "✅ Accept Dice Duel", callback_data: "DICE:TEMP" }]] },
+    reply_to_message_id: ctx.message?.message_id,
+  });
+
+  if (!sent?.message_id) return;
+
+  const challengeId = makeDiceChallengeId(ctx.chat.id, sent.message_id);
+  // update keyboard with real id
+  await safeTelegram(() =>
+    ctx.telegram.editMessageReplyMarkup(ctx.chat.id, sent.message_id, undefined, diceChallengeKeyboard(challengeId))
+  );
+
+  activeDiceChallenges.set(challengeId, {
+    challengeId,
+    chatId: ctx.chat.id,
+    msgId: sent.message_id,
+    bet,
+    challengerId: ctx.from.id,
+    challengerName: ctx.from.first_name || ctx.from.username || "Player",
+    createdAt: Date.now(),
+    status: "OPEN",
+    timeoutHandle: setTimeout(async () => {
+      const c = activeDiceChallenges.get(challengeId);
+      if (!c || c.status !== "OPEN") return;
+      c.status = "EXPIRED";
+      activeDiceChallenges.set(challengeId, c);
+      try {
+        await safeTelegram(() =>
+          bot.telegram.editMessageText(
+            c.chatId,
+            c.msgId,
+            undefined,
+            `⏳ <b>Dice Duel Expired</b>\n━━━━━━━━━━━━━\nChallenge ပြိုင်ဖက်မရှိလို့ အချိန်ကုန်သွားပါတယ်။\nBet: <b>${fmt(c.bet)}</b> ${COIN}`,
+            { parse_mode: "HTML", disable_web_page_preview: true }
+          )
+        );
+      } catch (_) {}
+      activeDiceChallenges.delete(challengeId);
+    }, DICE.timeoutMs),
+  });
+});
+
+// -------------------- Callback Query (SINGLE handler — important) --------------------
 bot.on("callback_query", async (ctx) => {
   const data = ctx.callbackQuery?.data || "";
 
   // ---- SHOP ----
   if (data === "SHOP:REFRESH") {
     const u = await ensureUser(ctx.from);
-    await safeTelegramCall(() => ctx.answerCbQuery("Refreshed"), 2);
-    return safeTelegramCall(
-      () =>
-        ctx.editMessageText(shopText(u.balance), {
-          parse_mode: "HTML",
-          reply_markup: shopKeyboard(),
-          disable_web_page_preview: true,
-        }),
-      3
-    );
+    await safeTelegram(() => ctx.answerCbQuery("Refreshed"));
+    return ctx.editMessageText(shopText(u.balance), { parse_mode: "HTML", reply_markup: shopKeyboard(), disable_web_page_preview: true });
   }
 
   if (data.startsWith("BUY:")) {
     const itemId = data.split(":")[1];
     const item = SHOP_ITEMS.find((x) => x.id === itemId);
-    if (!item) return safeTelegramCall(() => ctx.answerCbQuery("Item not found", { show_alert: true }), 2);
+    if (!item) return ctx.answerCbQuery("Item not found", { show_alert: true });
 
     await ensureUser(ctx.from);
     await ensureTreasury();
@@ -1804,18 +1805,18 @@ bot.on("callback_query", async (ctx) => {
 
       const orderId = ins.insertedId;
       const u = await getUser(ctx.from.id);
-      await safeTelegramCall(() => ctx.answerCbQuery("✅ Order created!"), 2);
+      await ctx.answerCbQuery("✅ Order created!");
 
       return replyHTML(
         ctx,
-        `✅ <b>Order Created</b>\n━━━━━━━━━━\n` +
+        `✅ <b>Order Created</b>\n━━━━━━━━━━━━━\n` +
           `Order ID: <code>${escHtml(String(orderId))}</code>\n` +
           `Receipt: <code>${escHtml(receiptCode)}</code>\n` +
           `Item: <b>${escHtml(item.name)}</b>\n` +
           `Paid: <b>${fmt(item.price)}</b> ${COIN}\n` +
           `Your Balance: <b>${fmt(u?.balance)}</b> ${COIN}\n` +
           `Status: <b>${ORDER_STATUS.PENDING}</b>\n` +
-          `━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━\n` +
           `📌 Admin က confirm / deliver လုပ်ပြီးရင် DM နဲ့ အကြောင်းကြားပေးပါမယ်။`
       );
     } catch (e) {
@@ -1825,27 +1826,26 @@ bot.on("callback_query", async (ctx) => {
         const need = toNum(item.price);
         const lack = Math.max(0, need - bal);
 
-        await safeTelegramCall(() => ctx.answerCbQuery(`❌ မလုံလောက်ပါ (${fmt(lack)} ${COIN} လိုနေပါသေးတယ်)`, { show_alert: true }), 2);
+        await ctx.answerCbQuery(`❌ မလုံလောက်ပါ (${fmt(lack)} ${COIN} လိုနေပါသေးတယ်)`, { show_alert: true });
 
         return replyHTML(
           ctx,
           `❌ <b>လက်ကျန်ငွေ မလုံလောက်ပါ</b>\n` +
-            `━━━━━━━━━━\n` +
+            `━━━━━━━━━━━\n` +
             `Item: <b>${escHtml(item.name)}</b>\n` +
             `Price: <b>${fmt(need)}</b> ${COIN}\n` +
             `Your Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
             `Need More: <b>${fmt(lack)}</b> ${COIN}\n` +
-            `━━━━━━━━━━\n` +
-            `💡 slot ဆော့ရင်း coin ဆုဆောင်းပြီးမှ ပြန်လာပါ။\n` +
+            `━━━━━━━━━━━━\n` +
+            `💡 slot ဆော့ရင်း ပိုက်ဆံဆုဆောင်းပြီးမှ ပြန်လာပါ။\n` +
             `• Daily claim: <code>/dailyclaim</code>\n` +
             `• Wallet: <code>.mybalance</code>\n` +
-            `• Leaderboard: <code>.top10 players</code>\n` +
             `• Shop: <code>/shop</code>`
         );
       }
 
       console.error("BUY error:", e);
-      return safeTelegramCall(() => ctx.answerCbQuery("Error", { show_alert: true }), 2);
+      return ctx.answerCbQuery("Error", { show_alert: true });
     }
   }
 
@@ -1853,43 +1853,37 @@ bot.on("callback_query", async (ctx) => {
   if (data.startsWith("ADMIN:")) {
     const t = await ensureTreasury();
     if (!isOwner(ctx, t)) {
-      await safeTelegramCall(() => ctx.answerCbQuery("Owner only", { show_alert: true }), 2);
+      await ctx.answerCbQuery("Owner only", { show_alert: true });
       return;
     }
 
     if (data === "ADMIN:REFRESH") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Refreshed"), 2);
+      await ctx.answerCbQuery("Refreshed");
       return renderAdminPanel(ctx);
     }
-
     if (data === "ADMIN:TREASURY") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Treasury"), 2);
+      await ctx.answerCbQuery("Treasury");
       return renderAdminPanel(ctx, "📌 Treasury status shown above.");
     }
-
     if (data === "ADMIN:TARGET_MANUAL") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Manual target"), 2);
+      await ctx.answerCbQuery("Manual target");
       return askManualTarget(ctx);
     }
-
     if (data === "ADMIN:CLEAR_TARGET") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Cleared"), 2);
+      await ctx.answerCbQuery("Cleared");
       clearAdminSession(ctx.from.id);
       return renderAdminPanel(ctx, "🧹 Target cleared.");
     }
-
     if (data === "ADMIN:ADD") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Add"), 2);
+      await ctx.answerCbQuery("Add");
       return askAmount(ctx, "add");
     }
-
     if (data === "ADMIN:REMOVE") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Remove"), 2);
+      await ctx.answerCbQuery("Remove");
       return askAmount(ctx, "remove");
     }
-
     if (data === "ADMIN:ORDERS") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Orders"), 2);
+      await ctx.answerCbQuery("Orders");
       const list = await getRecentOrders([ORDER_STATUS.PENDING, ORDER_STATUS.PAID], 10);
       if (!list.length) return renderAdminPanel(ctx, "🧾 Orders: <i>None</i>");
 
@@ -1915,18 +1909,14 @@ bot.on("callback_query", async (ctx) => {
         `━━━━━━━━━━━\n` +
         `Tap an order below to manage:`;
 
-      return safeTelegramCall(
-        () =>
-          ctx.editMessageText(panel, {
-            parse_mode: "HTML",
-            disable_web_page_preview: true,
-            reply_markup: adminOrdersKeyboard(list),
-          }),
-        3
-      );
+      return ctx.editMessageText(panel, {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: adminOrdersKeyboard(list),
+      });
     }
 
-    await safeTelegramCall(() => ctx.answerCbQuery("OK"), 2);
+    await ctx.answerCbQuery("OK");
     return;
   }
 
@@ -1934,7 +1924,7 @@ bot.on("callback_query", async (ctx) => {
   if (data.startsWith("ORDER:")) {
     const t = await ensureTreasury();
     if (!isOwner(ctx, t)) {
-      await safeTelegramCall(() => ctx.answerCbQuery("Owner only", { show_alert: true }), 2);
+      await ctx.answerCbQuery("Owner only", { show_alert: true });
       return;
     }
 
@@ -1943,137 +1933,287 @@ bot.on("callback_query", async (ctx) => {
     const id = parts[2];
 
     if (action === "OPEN") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Open"), 2);
+      await ctx.answerCbQuery("Open");
       let oid = null;
       try {
         oid = new ObjectId(id);
       } catch (_) {
-        return safeTelegramCall(() => ctx.editMessageText("Invalid Order ID", { reply_markup: adminKeyboard() }), 2);
+        return ctx.editMessageText("Invalid Order ID", { reply_markup: adminKeyboard() });
       }
       const o = await orders.findOne({ _id: oid });
-      if (!o) return safeTelegramCall(() => ctx.editMessageText("Order not found", { reply_markup: adminKeyboard() }), 2);
-
+      if (!o) return ctx.editMessageText("Order not found", { reply_markup: adminKeyboard() });
       const text = orderReceiptText(o) + "\nSelect action:";
-      return safeTelegramCall(
-        () =>
-          ctx.editMessageText(text, {
-            parse_mode: "HTML",
-            disable_web_page_preview: true,
-            reply_markup: orderActionKeyboard(String(o._id)),
-          }),
-        3
-      );
+      return ctx.editMessageText(text, {
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: orderActionKeyboard(String(o._id)),
+      });
     }
 
     if (action === "PAID" || action === "DELIVERED" || action === "CANCEL") {
-      await safeTelegramCall(() => ctx.answerCbQuery("Working..."), 2);
-
+      await ctx.answerCbQuery("Working...");
       let oid = null;
       try {
         oid = new ObjectId(id);
       } catch (_) {
-        return safeTelegramCall(() => ctx.answerCbQuery("Invalid ID", { show_alert: true }), 2);
+        return ctx.answerCbQuery("Invalid ID", { show_alert: true });
       }
 
       const o = await orders.findOne({ _id: oid });
-      if (!o) return safeTelegramCall(() => ctx.answerCbQuery("Order not found", { show_alert: true }), 2);
+      if (!o) return ctx.answerCbQuery("Order not found", { show_alert: true });
 
       if (action === "PAID") {
-        if (o.status === ORDER_STATUS.CANCELLED || o.status === ORDER_STATUS.DELIVERED) {
-          return safeTelegramCall(() => ctx.answerCbQuery("Already closed", { show_alert: true }), 2);
-        }
+        if (o.status === ORDER_STATUS.CANCELLED || o.status === ORDER_STATUS.DELIVERED) return ctx.answerCbQuery("Already closed", { show_alert: true });
         const now = new Date();
         await orders.updateOne(
           { _id: oid },
-          {
-            $set: { status: ORDER_STATUS.PAID, updatedAt: now },
-            $push: { history: { status: ORDER_STATUS.PAID, at: now, by: ctx.from.id } },
-          }
+          { $set: { status: ORDER_STATUS.PAID, updatedAt: now }, $push: { history: { status: ORDER_STATUS.PAID, at: now, by: ctx.from.id } } }
         );
         const updated = await orders.findOne({ _id: oid });
         await notifyUserOrderUpdate(updated, "✅ Admin က order ကို <b>PAID</b> လို့ confirm လုပ်ပြီးပါပြီ။");
-        const text = orderReceiptText(updated) + "\n✅ Updated.";
-        return safeTelegramCall(
-          () =>
-            ctx.editMessageText(text, {
-              parse_mode: "HTML",
-              disable_web_page_preview: true,
-              reply_markup: orderActionKeyboard(String(updated._id)),
-            }),
-          3
-        );
+        return ctx.editMessageText(orderReceiptText(updated) + "\n✅ Updated.", {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_markup: orderActionKeyboard(String(updated._id)),
+        });
       }
 
       if (action === "DELIVERED") {
-        if (o.status === ORDER_STATUS.CANCELLED) return safeTelegramCall(() => ctx.answerCbQuery("Cancelled order", { show_alert: true }), 2);
-
+        if (o.status === ORDER_STATUS.CANCELLED) return ctx.answerCbQuery("Cancelled order", { show_alert: true });
         const now = new Date();
         await orders.updateOne(
           { _id: oid },
-          {
-            $set: { status: ORDER_STATUS.DELIVERED, updatedAt: now },
-            $push: { history: { status: ORDER_STATUS.DELIVERED, at: now, by: ctx.from.id } },
-          }
+          { $set: { status: ORDER_STATUS.DELIVERED, updatedAt: now }, $push: { history: { status: ORDER_STATUS.DELIVERED, at: now, by: ctx.from.id } } }
         );
         const updated = await orders.findOne({ _id: oid });
         await notifyUserOrderUpdate(updated, "📦 Order ကို <b>DELIVERED</b> လုပ်ပြီးပါပြီ။ ကျေးဇူးတင်ပါတယ်။");
-
-        const text = orderReceiptText(updated) + "\n📦 Delivered.";
-        return safeTelegramCall(
-          () =>
-            ctx.editMessageText(text, {
-              parse_mode: "HTML",
-              disable_web_page_preview: true,
-              reply_markup: { inline_keyboard: [[{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]] },
-            }),
-          3
-        );
+        return ctx.editMessageText(orderReceiptText(updated) + "\n📦 Delivered.", {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_markup: { inline_keyboard: [[{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]] },
+        });
       }
 
       if (action === "CANCEL") {
-        if (o.status === ORDER_STATUS.CANCELLED) return safeTelegramCall(() => ctx.answerCbQuery("Already cancelled", { show_alert: true }), 2);
-        if (o.status === ORDER_STATUS.DELIVERED) return safeTelegramCall(() => ctx.answerCbQuery("Already delivered", { show_alert: true }), 2);
+        if (o.status === ORDER_STATUS.CANCELLED) return ctx.answerCbQuery("Already cancelled", { show_alert: true });
+        if (o.status === ORDER_STATUS.DELIVERED) return ctx.answerCbQuery("Already delivered", { show_alert: true });
 
         try {
           await treasuryPayToUser(o.userId, o.price, { type: "order_refund", orderId: String(o._id), itemId: o.itemId });
         } catch (e) {
-          if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
-            return safeTelegramCall(() => ctx.answerCbQuery("Treasury insufficient for refund", { show_alert: true }), 2);
-          }
+          if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) return ctx.answerCbQuery("Treasury insufficient for refund", { show_alert: true });
           console.error("refund error:", e);
-          return safeTelegramCall(() => ctx.answerCbQuery("Refund error", { show_alert: true }), 2);
+          return ctx.answerCbQuery("Refund error", { show_alert: true });
         }
 
         const now = new Date();
         await orders.updateOne(
           { _id: oid },
-          {
-            $set: { status: ORDER_STATUS.CANCELLED, updatedAt: now },
-            $push: { history: { status: ORDER_STATUS.CANCELLED, at: now, by: ctx.from.id } },
-          }
+          { $set: { status: ORDER_STATUS.CANCELLED, updatedAt: now }, $push: { history: { status: ORDER_STATUS.CANCELLED, at: now, by: ctx.from.id } } }
         );
 
         const updated = await orders.findOne({ _id: oid });
         await notifyUserOrderUpdate(updated, `❌ Admin က order ကို <b>CANCELLED</b> လုပ်ပြီး refund <b>${fmt(updated.price)}</b> ${COIN} ပြန်ပေးပြီးပါပြီ။`);
 
-        const text = orderReceiptText(updated) + "\n❌ Cancelled + Refunded.";
-        return safeTelegramCall(
-          () =>
-            ctx.editMessageText(text, {
-              parse_mode: "HTML",
-              disable_web_page_preview: true,
-              reply_markup: { inline_keyboard: [[{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]] },
-            }),
-          3
-        );
+        return ctx.editMessageText(orderReceiptText(updated) + "\n❌ Cancelled + Refunded.", {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_markup: { inline_keyboard: [[{ text: "⬅️ Back to Admin", callback_data: "ADMIN:REFRESH" }]] },
+        });
       }
     }
 
-    await safeTelegramCall(() => ctx.answerCbQuery("OK"), 2);
+    await ctx.answerCbQuery("OK");
     return;
   }
 
-  await safeTelegramCall(() => ctx.answerCbQuery("OK"), 2);
+  // ---- DICE PVP ----
+  if (data.startsWith("DICE:")) {
+    const parts = data.split(":");
+    const action = parts[1];
+    const challengeId = parts.slice(2).join(":");
+
+    const c = activeDiceChallenges.get(challengeId);
+    if (!c) {
+      await ctx.answerCbQuery("Challenge not found / expired", { show_alert: true });
+      return;
+    }
+
+    if (action === "CANCEL") {
+      if (ctx.from.id !== c.challengerId && ctx.from.id !== OWNER_ID) {
+        await ctx.answerCbQuery("Only challenger can cancel", { show_alert: true });
+        return;
+      }
+      c.status = "CANCELLED";
+      clearTimeout(c.timeoutHandle);
+      activeDiceChallenges.delete(challengeId);
+      await ctx.answerCbQuery("Cancelled");
+      return ctx.editMessageText(
+        `❌ <b>Dice Duel Cancelled</b>\n━━━━━━━━━━━━\nChallenger cancelled.\nBet: <b>${fmt(c.bet)}</b> ${COIN}`,
+        { parse_mode: "HTML", disable_web_page_preview: true }
+      );
+    }
+
+    if (action === "ACCEPT") {
+      if (c.status !== "OPEN") {
+        await ctx.answerCbQuery("Already closed", { show_alert: true });
+        return;
+      }
+      if (ctx.from.id === c.challengerId) {
+        await ctx.answerCbQuery("You can't accept your own challenge", { show_alert: true });
+        return;
+      }
+
+      // check both balances again at accept time
+      await ensureUser(ctx.from);
+      const challenger = await getUser(c.challengerId);
+      const opponent = await getUser(ctx.from.id);
+
+      if (toNum(challenger?.balance) < c.bet) {
+        c.status = "FAILED";
+        clearTimeout(c.timeoutHandle);
+        activeDiceChallenges.delete(challengeId);
+        await ctx.answerCbQuery("Challenger has insufficient balance", { show_alert: true });
+        return ctx.editMessageText(
+          `⚠️ <b>Challenge Failed</b>\n━━━━━━━━━━━━\nChallenger balance မလုံလောက်ပါ။`,
+          { parse_mode: "HTML", disable_web_page_preview: true }
+        );
+      }
+
+      if (toNum(opponent?.balance) < c.bet) {
+        await ctx.answerCbQuery("Insufficient balance", { show_alert: true });
+        const lack = Math.max(0, c.bet - toNum(opponent?.balance));
+        return replyHTML(
+          ctx,
+          `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━\nBet: <b>${fmt(c.bet)}</b> ${COIN}\nYour Balance: <b>${fmt(opponent?.balance)}</b> ${COIN}\nNeed More: <b>${fmt(lack)}</b> ${COIN}`,
+          { reply_to_message_id: c.msgId }
+        );
+      }
+
+      // lock challenge
+      c.status = "PLAYING";
+      c.opponentId = ctx.from.id;
+      clearTimeout(c.timeoutHandle);
+      activeDiceChallenges.set(challengeId, c);
+
+      await ctx.answerCbQuery("Accepted!");
+
+      // take both bets -> treasury
+      try {
+        await ensureTreasury();
+        await userPayToTreasury(c.challengerId, c.bet, { type: "dice_bet", challengeId });
+        await userPayToTreasury(c.opponentId, c.bet, { type: "dice_bet", challengeId });
+      } catch (e) {
+        console.error("dice bet take error:", e);
+        c.status = "FAILED";
+        activeDiceChallenges.delete(challengeId);
+        return ctx.editMessageText(`⚠️ <b>Error</b>\n━━━━━━━━━━━━\nBet process error.`, { parse_mode: "HTML" });
+      }
+
+      const pot = c.bet * 2;
+      const payout = Math.floor(pot * (1 - HOUSE_CUT_PERCENT));
+      const houseCut = pot - payout;
+
+      // update message: duel started
+      await safeTelegram(() =>
+        ctx.editMessageText(
+          `🎲 <b>Dice Duel Started!</b>\n━━━━━━━━━━━━\n` +
+            `Challenger: <b>${escHtml(challenger?.firstName || challenger?.username || "Player")}</b>\n` +
+            `Opponent: <b>${escHtml(opponent?.firstName || opponent?.username || "Player")}</b>\n` +
+            `Bet: <b>${fmt(c.bet)}</b> ${COIN}\n` +
+            `Pot: <b>${fmt(pot)}</b> ${COIN}\n` +
+            `House cut: <b>2%</b> (${fmt(houseCut)} ${COIN})\n` +
+            `━━━━━━━━━━━━\nRolling dice…`,
+          { parse_mode: "HTML", disable_web_page_preview: true }
+        )
+      );
+
+      // dice animation (two rolls)
+      let d1 = null, d2 = null;
+      try {
+        const r1 = await sendDice(c.chatId, c.msgId);
+        await sleep(900);
+        const r2 = await sendDice(c.chatId, c.msgId);
+        d1 = r1?.dice?.value || 0;
+        d2 = r2?.dice?.value || 0;
+      } catch (e) {
+        console.error("sendDice error:", e);
+      }
+
+      // fallback if dice failed
+      if (!d1 || !d2) {
+        d1 = randInt(1, 6);
+        d2 = randInt(1, 6);
+      }
+
+      let winnerId = null;
+      let resultLine = "";
+
+      if (d1 > d2) {
+        winnerId = c.challengerId;
+        resultLine = `🏆 Winner: <b>${escHtml(challenger?.firstName || challenger?.username || "Challenger")}</b>`;
+      } else if (d2 > d1) {
+        winnerId = c.opponentId;
+        resultLine = `🏆 Winner: <b>${escHtml(opponent?.firstName || opponent?.username || "Opponent")}</b>`;
+      } else {
+        // tie => refund both (no house cut)
+        try {
+          await treasuryPayToUser(c.challengerId, c.bet, { type: "dice_refund", challengeId, reason: "tie" });
+          await treasuryPayToUser(c.opponentId, c.bet, { type: "dice_refund", challengeId, reason: "tie" });
+        } catch (_) {}
+        c.status = "DONE";
+        activeDiceChallenges.delete(challengeId);
+
+        return ctx.editMessageText(
+          `🎲 <b>Dice Duel Result</b>\n━━━━━━━━━━━━\n` +
+            `Challenger roll: <b>${d1}</b>\n` +
+            `Opponent roll: <b>${d2}</b>\n` +
+            `━━━━━━━━━━━━\n` +
+            `🤝 <b>TIE!</b> — Bet refund ပြန်ပေးပြီးပါပြီ။`,
+          { parse_mode: "HTML", disable_web_page_preview: true }
+        );
+      }
+
+      // pay winner 98%
+      try {
+        await treasuryPayToUser(winnerId, payout, { type: "dice_win", challengeId, pot, payout, houseCut });
+      } catch (e) {
+        console.error("dice payout error:", e);
+        // if payout fail => refund both
+        try {
+          await treasuryPayToUser(c.challengerId, c.bet, { type: "dice_refund", challengeId, reason: "payout_fail" });
+          await treasuryPayToUser(c.opponentId, c.bet, { type: "dice_refund", challengeId, reason: "payout_fail" });
+        } catch (_) {}
+        c.status = "DONE";
+        activeDiceChallenges.delete(challengeId);
+        return ctx.editMessageText(
+          `⚠️ <b>Dice Duel Error</b>\n━━━━━━━━━━━━━━━━\nPayout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`,
+          { parse_mode: "HTML", disable_web_page_preview: true }
+        );
+      }
+
+      c.status = "DONE";
+      activeDiceChallenges.delete(challengeId);
+
+      return ctx.editMessageText(
+        `🎲 <b>Dice Duel Result</b>\n━━━━━━━━━━━━━━━━\n` +
+          `Challenger roll: <b>${d1}</b>\n` +
+          `Opponent roll: <b>${d2}</b>\n` +
+          `━━━━━━━━━━━━━━━━\n` +
+          `${resultLine}\n` +
+          `💰 Pot: <b>${fmt(pot)}</b> ${COIN}\n` +
+          `✅ Winner gets: <b>${fmt(payout)}</b> ${COIN} (98%)\n` +
+          `🏦 House cut: <b>2%</b> (${fmt(houseCut)} ${COIN})`,
+        { parse_mode: "HTML", disable_web_page_preview: true }
+      );
+    }
+
+    await ctx.answerCbQuery("OK");
+    return;
+  }
+
+  // default
+  await ctx.answerCbQuery("OK");
 });
 
 // -------------------- Webhook Boot (Render Web Service) --------------------
@@ -2134,3 +2274,4 @@ async function safeShutdown(signal) {
 
 process.once("SIGINT", () => safeShutdown("SIGINT"));
 process.once("SIGTERM", () => safeShutdown("SIGTERM"));
+
