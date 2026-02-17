@@ -1130,9 +1130,9 @@ async function runSlotSpinAnimated(ctx, bet) {
 
   const finalMsg =
     `🎰 <b>BIKA Pro Slot</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━\n` +
     `<pre>${escHtml(slotArt(finalA, finalB, finalC))}</pre>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━\n` +
     `<b>${escHtml(headline)}</b>\n` +
     `Bet: <b>${fmt(bet)}</b> ${COIN}\n` +
     `Payout: <b>${fmt(payout)}</b> ${COIN}\n` +
@@ -1239,7 +1239,7 @@ bot.command("rtp", async (ctx) => {
 
   const msg =
     `🧮 <b>Slot RTP Dashboard</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━\n` +
     `Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
     `Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
     `Base RTP: <b>${(base * 100).toFixed(2)}%</b>\n` +
@@ -1247,7 +1247,7 @@ bot.command("rtp", async (ctx) => {
     `777 Odds: <b>${escHtml(odds777)}</b>\n` +
     `Cap: <b>${Math.round(SLOT.capPercent * 100)}%</b> of Treasury / spin\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━\n` +
     `<b>Payout Table (Bet = 1,000)</b>\n` +
     `<pre>${escHtml(renderPayoutsTable())}</pre>`;
 
@@ -1281,14 +1281,14 @@ bot.command("setrtp", async (ctx) => {
 
   const msg =
     `✅ <b>RTP Updated (Owner)</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━\n` +
     `Target RTP: <b>${(target * 100).toFixed(2)}%</b>\n` +
     `Old Base RTP: <b>${(before * 100).toFixed(2)}%</b>\n` +
     `New Base RTP: <b>${(after * 100).toFixed(2)}%</b>\n` +
     `Scale Factor: <b>${factor.toFixed(4)}</b>\n` +
     `777 Odds: <b>${escHtml(odds777)}</b>\n` +
     `Treasury: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━\n` +
     `<b>Payout Table (Bet = 1,000)</b>\n` +
     `<pre>${escHtml(renderPayoutsTable())}</pre>`;
 
@@ -1350,13 +1350,13 @@ async function renderAdminPanel(ctx, note = "") {
 
   const text =
     `${ADMIN.panelTitle}\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━\n` +
     `Treasury Balance: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}\n` +
     `Total Supply: <b>${fmt(tr?.totalSupply)}</b> ${COIN}\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon)\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━\n` +
     `${targetLine}\n` +
-    `━━━━━━━━━━━━━━━━━━━━` +
+    `━━━━━━━━━━━━━━━` +
     `${extra}` +
     `Choose an action below:`;
 
@@ -1372,7 +1372,7 @@ async function askManualTarget(ctx) {
   setAdminSession(ctx.from.id, { mode: "await_target" });
   return replyHTML(
     ctx,
-    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
+    `🔎 <b>Set Target User</b>\n━━━━━━━━━━━━━━━\nSend one:\n• <code>@username</code>\n• <code>123456789</code> (userId)\nExample: <code>@Official_Bika</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1388,7 +1388,7 @@ async function askAmount(ctx, type) {
 
   return replyHTML(
     ctx,
-    `${header}\n━━━━━━━━━━━━━━━━━━━━\nTarget: <b>${escHtml(String(s.targetLabel))}</b>\nFlow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
+    `${header}\n━━━━━━━━━━━━━━━━\nTarget: <b>${escHtml(String(s.targetLabel))}</b>\nFlow: <i>${escHtml(hint)}</i>\n━━━━━━━━━━━━━━━━━━━━\nAmount ပို့ပါ (numbers only)\nExample: <code>5000</code>`,
     { reply_markup: { force_reply: true } }
   );
 }
@@ -1495,7 +1495,7 @@ function orderReceiptText(o) {
   const who = o.username ? `@${escHtml(o.username)}` : `<code>${o.userId}</code>`;
   return (
     `🧾 <b>Order Receipt</b>\n` +
-    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `━━━━━━━━━━━━━━━━\n` +
     `Order ID: <code>${escHtml(String(o._id))}</code>\n` +
     `Receipt: <code>${escHtml(o.receiptCode || "-")}</code>\n` +
     `Item: <b>${escHtml(o.itemName)}</b>\n` +
@@ -1503,7 +1503,7 @@ function orderReceiptText(o) {
     `Status: <b>${escHtml(o.status)}</b>\n` +
     `User: ${who}\n` +
     `Time: <b>${escHtml(formatYangon(new Date(o.createdAt)))}</b> (Yangon)\n` +
-    `━━━━━━━━━━━━━━━━━━━━`
+    `━━━━━━━━━━━━━━━━`
   );
 }
 
@@ -1512,7 +1512,7 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
     const note = noteLine ? `\n${noteLine}\n` : "\n";
     const msg =
       `🧾 <b>Order Update</b>\n` +
-      `━━━━━━━━━━━━━━━━━━━━\n` +
+      `━━━━━━━━━━━━━━━━\n` +
       `Order ID: <code>${escHtml(String(o._id))}</code>\n` +
       `Receipt: <code>${escHtml(o.receiptCode || "-")}</code>\n` +
       `Item: <b>${escHtml(o.itemName)}</b>\n` +
@@ -1575,14 +1575,14 @@ bot.on("callback_query", async (ctx) => {
       // user receipt message
       return replyHTML(
         ctx,
-        `✅ <b>Order Created</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
+        `✅ <b>Order Created</b>\n━━━━━━━━━━━━━━━\n` +
           `Order ID: <code>${escHtml(String(orderId))}</code>\n` +
           `Receipt: <code>${escHtml(receiptCode)}</code>\n` +
           `Item: <b>${escHtml(item.name)}</b>\n` +
           `Paid: <b>${fmt(item.price)}</b> ${COIN}\n` +
           `Your Balance: <b>${fmt(u?.balance)}</b> ${COIN}\n` +
           `Status: <b>${ORDER_STATUS.PENDING}</b>\n` +
-          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `━━━━━━━━━━━━━━━\n` +
           `📌 Admin က confirm / deliver လုပ်ပြီးရင် DM နဲ့ အကြောင်းကြားပေးပါမယ်။`
       );
     } catch (e) {
@@ -1598,12 +1598,12 @@ bot.on("callback_query", async (ctx) => {
         return replyHTML(
           ctx,
           `❌ <b>လက်ကျန်ငွေ မလုံလောက်ပါ</b>\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `━━━━━━━━━━━━━━\n` +
             `Item: <b>${escHtml(item.name)}</b>\n` +
             `Price: <b>${fmt(need)}</b> ${COIN}\n` +
             `Your Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
             `Need More: <b>${fmt(lack)}</b> ${COIN}\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n` +
+            `━━━━━━━━━━━━━━━\n` +
             `💡 slot ဆော့ရင်း ပိုက်ဆံဆုဆောင်းပြီးမှ ပြန်လာပါ။\n` +
             `• Daily claim: <code>/dailyclaim</code>\n` +
             `• Wallet: <code>.mybalance</code>\n` +
@@ -1678,9 +1678,9 @@ bot.on("callback_query", async (ctx) => {
 
       // show list + quick open buttons
       const panel =
-        `🧾 <b>Orders (PENDING / PAID)</b>\n━━━━━━━━━━━━━━━━━━━━\n` +
+        `🧾 <b>Orders (PENDING / PAID)</b>\n━━━━━━━━━━━━━━━\n` +
         `${lines}\n` +
-        `━━━━━━━━━━━━━━━━━━━━\n` +
+        `━━━━━━━━━━━━━━━\n` +
         `Tap an order below to manage:`;
 
       // We edit admin panel message with an order list keyboard (single message UI)
