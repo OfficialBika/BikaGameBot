@@ -9,7 +9,7 @@
  * ✅ /dailyclaim group only (Yangon day) 50~100 (ONLY if treasury has balance)
  * ✅ .slot 100 (group) animated edit UI
  *    - ✅ Multi play supported: each user gets their own animation message (reply to their command)
- *    - ✅ MAX_ACTIVE_SLOTS = 15 (global active spins)
+ *    - ✅ MAX_ACTIVE_SLOTS = 10 (global active spins)
  * ✅ /setrtp 90 + /rtp payout pro table
  * ✅ /shop inline buy -> Orders
  *    - ✅ Order status: PENDING → PAID / DELIVERED / CANCELLED
@@ -1044,7 +1044,7 @@ bot.command("shop", async (ctx) => {
 });
 
 // -------------------- Slot (Animated Edit UI) --------------------
-const MAX_ACTIVE_SLOTS = 15;
+const MAX_ACTIVE_SLOTS = 10;
 const activeSlots = new Set(); // userId set
 console.log(`🎰 MAX_ACTIVE_SLOTS: ${MAX_ACTIVE_SLOTS}`);
 
@@ -1090,7 +1090,7 @@ const SLOT = {
     "🍉,🍉,🍉": 7,
     "🍋,🍋,🍋": 5,
     "🍒,🍒,🍒": 4,
-    ANY2: 1.7,
+    ANY2: 1.5,
   },
 };
 
@@ -1128,6 +1128,7 @@ function slotArt(a, b, c) {
   return `┏━━━━━━━━━━━━━━━━━━┓\n┃  ${box(a)}  |  ${box(b)}  |  ${box(c)}  ┃\n┗━━━━━━━━━━━━━━━━━━┛`;
 }
 
+// simplified — remove sound text, keep only short note
 function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
   const art = slotArt(a, b, c);
 
@@ -1142,25 +1143,14 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
       ? "💎🏆 777 MEGA WIN! 🏆💎"
       : "🎰 BIKA Pro Slot";
 
-  const sound =
-    vibe === "spin"
-      ? "🔊 KRRR… KRRR…  🎛️"
-      : vibe === "lock"
-      ? "🔊 KLAK!  🔒"
-      : vibe === "glow"
-      ? "✨✨✨"
-      : vibe === "lose"
-      ? "🔇 whomp… whomp…  💔"
-      : vibe.startsWith("jackpot")
-      ? "💥🔥🎆"
-      : "🔊";
+  const noteLine = note ? `${escHtml(note)}` : "";
 
   return (
     `<b>${escHtml(vibeHeader)}</b>\n` +
     `━━━━━━━━━━━━\n` +
     `<pre>${escHtml(art)}</pre>\n` +
     `━━━━━━━━━━━━\n` +
-    `${escHtml(sound)} ${escHtml(note)}`
+    `${noteLine}`
   );
 }
 
@@ -1299,11 +1289,17 @@ async function runSlotSpinAnimated(ctx, bet) {
   }
 }
 
+// 🔥 .slot handler — fire & forget so multi users can spin in parallel
 bot.hears(/^\.(slot)\s+(\d+)\s*$/i, async (ctx) => {
-  if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.slot</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
+  if (!isGroupChat(ctx)) {
+    return replyHTML(ctx, "ℹ️ <code>.slot</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
+  }
+
   const bet = parseInt(ctx.match[2], 10);
   if (!Number.isFinite(bet) || bet <= 0) return;
-  return runSlotSpinAnimated(ctx, bet);
+
+  // main spin အတွက် await မလုပ်ဘဲ ချက်ချင်း run — animation background မှာ လုပ်သွားမယ်
+  runSlotSpinAnimated(ctx, bet).catch((err) => console.error("slot spin error:", err));
 });
 
 // -------------------- RTP monitor + /setrtp --------------------
@@ -2150,8 +2146,8 @@ bot.on("callback_query", async (ctx) => {
       await safeTelegram(() =>
         ctx.editMessageText(
           `🎲 <b>Dice Duel Started!</b>\n━━━━━━━━━━━━\n` +
-            `Challenger: <b>${escHtml(challenger?.firstName || challenger?.username || "Player")}</b>\n` +
-            `Opponent: <b>${escHtml(opponent?.firstName || opponent?.username || "Player")}</b>\n` +
+            `Challenger: <b>${escHtml(challenger?.firstName || challenger?.username || "Challenger")}</b>\n` +
+            `Opponent: <b>${escHtml(opponent?.firstName || opponent?.username || "Opponent")}</b>\n` +
             `Bet: <b>${fmt(c.bet)}</b> ${COIN}\n` +
             `Pot: <b>${fmt(pot)}</b> ${COIN}\n` +
             `House cut: <b>2%</b> (${fmt(houseCut)} ${COIN})\n` +
