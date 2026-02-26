@@ -546,8 +546,8 @@ bot.command("balance", async (ctx) => {
 });
 
 // -------------------- Daily claim (Group only, Yangon day) --------------------
-const DAILY_MIN = 50;
-const DAILY_MAX = 100;
+const DAILY_MIN = 500;
+const DAILY_MAX = 2000;
 
 function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -646,11 +646,11 @@ bot.hears(/^\.(mybalance|bal)\s*$/i, async (ctx) => {
 
   const msg =
     header +
-    `👤 ${mentionHtml(ctx.from)}\n` +
-    `🪙 Balance: <b>${fmt(bal)}</b> ${COIN}\n` +
+    `👤 ${mentionHtml(ctx.from)}\n\n` +
+    `🪙 လက်ကျန်ငွေ: <b>${fmt(bal)}</b> ${COIN}\n` +
     `━━━━━━━━━━━━━━━━\n` +
-    `🏷️ Rank: <b>${escHtml(rank.title)}</b>\n` +
-    `${rank.aura} Progress: <code>${escHtml(bar)}</code>\n` +
+    `🏷️ Rank: <b>${escHtml(rank.title)}</b>\n\n` +
+    `${rank.aura} Progress: <code>${escHtml(bar)}</code>\n\n` +
     `📌 Range: <b>${fmt(range.min)}</b> → <b>${fmt(range.max)}</b> ${COIN}\n` +
     `━━━━━━━━━━━━━━━━\n` +
     `🕒 ${escHtml(formatYangon(new Date()))} (Yangon Time)`;
@@ -917,7 +917,7 @@ bot.command("addbalance", async (ctx) => {
 
     return replyHTML(
       ctx,
-      `✅ <b>Balance Added</b>\n━━━━━━━━━━━━\nUser: ${r.labelHtml}\nAmount: <b>${fmt(amount)}</b> ${COIN}\nUser Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nဘဏ်ငွေ လက်ကျန်: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
+      `✅ <b>Balance Added</b>\n━━━━━━━━━━━━\nUser: ${r.labelHtml}\nထပ်ဖြည့်လိုက်သောငွေ: <b>${fmt(amount)}</b> ${COIN}\nလက်ကျန်ငွေစုစုပေါင်း: <b>${fmt(u?.balance)}</b> ${COIN}\nဘဏ်ငွေ လက်ကျန်: <b>${fmt(tr?.ownerBalance)}</b> ${COIN}`
     );
   } catch (e) {
     if (String(e?.message || e).includes("TREASURY_INSUFFICIENT")) {
@@ -1058,27 +1058,27 @@ const SLOT = {
       { s: "🍒", w: 3200 },
       { s: "🍋", w: 2200 },
       { s: "🍉", w: 1200 },
-      { s: "🔔", w: 1000 },
+      { s: "🔔", w: 900 },
       { s: "⭐", w: 450 },
-      { s: "BAR", w: 450 },
+      { s: "BAR", w: 200 },
       { s: "7", w: 50 },
     ],
     [
       { s: "🍒", w: 3200 },
       { s: "🍋", w: 2200 },
-      { s: "🍉", w: 3200 },
+      { s: "🍉", w: 1200 },
       { s: "🔔", w: 900 },
       { s: "⭐", w: 450 },
-      { s: "BAR", w: 95 },
-      { s: "7", w: 5 },
+      { s: "BAR", w: 200 },
+      { s: "7", w: 50 },
     ],
     [
-      { s: "🍒", w: 3000 },
-      { s: "🍋", w: 2000 },
-      { s: "🍉", w: 2200 },
-      { s: "🔔", w: 2900 },
-      { s: "⭐", w: 1350 },
-      { s: "BAR", w: 95 },
+      { s: "🍒", w: 3200 },
+      { s: "🍋", w: 2200 },
+      { s: "🍉", w: 1200 },
+      { s: "🔔", w: 900 },
+      { s: "⭐", w: 450 },
+      { s: "BAR", w: 200 },
       { s: "7", w: 50 },
     ],
   ],
@@ -1089,7 +1089,7 @@ const SLOT = {
     "🔔,🔔,🔔": 8,
     "🍉,🍉,🍉": 7,
     "🍋,🍋,🍋": 5,
-    "🍒,🍒,🍒": 4,
+    "🍒,🍒,🍒": 3,
     ANY2: 1.5,
   },
 };
