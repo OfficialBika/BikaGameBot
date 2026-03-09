@@ -1,14 +1,5 @@
 /*
- * BIKA Pro Slot Bot — FINAL + Shan Koe Mee PvP
- * -------------------------------------------------------------
- * ✅ Express + Webhook + MongoDB
- * ✅ Treasury / Balance / Daily Claim / Gift / Shop / Orders
- * ✅ Slot (.slot)
- * ✅ Dice PvP (.dice reply-only)
- * ✅ Shan Koe Mee PvP (.shan reply-only)
- *
- * NOTE:
- * - Webhook mode on Render: DO NOT call bot.launch() and DO NOT call bot.stop()
+ * BIKA Pro Slot Bot 
  */
 
 require("dotenv").config();
@@ -997,8 +988,8 @@ const SLOT = {
       { s: "🍋", w: 2200 },
       { s: "🍉", w: 1200 },
       { s: "🔔", w: 900 },
-      { s: "⭐", w: 450 },
-      { s: "BAR", w: 200 },
+      { s: "⭐", w: 350 },
+      { s: "BAR", w: 100 },
       { s: "7", w: 50 },
     ],
     [
@@ -1021,14 +1012,14 @@ const SLOT = {
     ],
   ],
   payouts: {
-    "7,7,7": 30,
-    "BAR,BAR,BAR": 12,
-    "⭐,⭐,⭐": 10,
-    "🔔,🔔,🔔": 8,
-    "🍉,🍉,🍉": 7,
+    "7,7,7": 20,
+    "BAR,BAR,BAR": 10,
+    "⭐,⭐,⭐": 9,
+    "🔔,🔔,🔔": 7,
+    "🍉,🍉,🍉": 6,
     "🍋,🍋,🍋": 5,
     "🍒,🍒,🍒": 3,
-    ANY2: 1.4,
+    ANY2: 1.3,
   },
 };
 
@@ -1595,10 +1586,10 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
 
 // -------------------- Dice PvP --------------------
 const DICE = {
-  minBet: 50,
-  maxBet: 5000,
+  minBet: 10,
+  maxBet: 10000,
   timeoutMs: 60_000,
-  maxActive: 20,
+  maxActive: 10,
 };
 
 const activeDiceChallenges = new Map();
@@ -1747,10 +1738,10 @@ bot.hears(/^\.(dice)\s+(\d+)\s*$/i, async (ctx) => {
 
 // -------------------- Shan Koe Mee PvP --------------------
 const SHAN = {
-  minBet: 50,
-  maxBet: 5000,
+  minBet: 10,
+  maxBet: 10000,
   timeoutMs: 60_000,
-  maxActive: 20,
+  maxActive: 10,
 };
 
 const activeShanChallenges = new Map();
