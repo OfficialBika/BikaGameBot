@@ -996,7 +996,7 @@ function adminOrdersKeyboard(list) {
   return { inline_keyboard: rows };
 }
 
-bot.command("shop", async (ctx) => {
+bot.command("shhoop", async (ctx) => {
   const u = await ensureUser(ctx.from);
   await ensureTreasury();
   return replyHTML(ctx, shopText(u.balance), { reply_markup: shopKeyboard() });
