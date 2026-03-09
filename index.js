@@ -1003,7 +1003,7 @@ bot.command("shhoop", async (ctx) => {
 });
 
 // -------------------- Slot --------------------
-const MAX_ACTIVE_SLOTS = 2;
+const MAX_ACTIVE_SLOTS = 3;
 const activeSlots = new Set();
 console.log(`🎰 MAX_ACTIVE_SLOTS: ${MAX_ACTIVE_SLOTS}`);
 
@@ -2247,7 +2247,7 @@ bot.on("callback_query", async (ctx) => {
         const now = new Date();
         await orders.updateOne({ _id: oid }, { $set: { status: ORDER_STATUS.PAID, updatedAt: now }, $push: { history: { status: ORDER_STATUS.PAID, at: now, by: ctx.from.id } } });
         const updated = await orders.findOne({ _id: oid });
-        await notifyUserOrderUpdate(updated, "✅ Admin က order ကို <b>PAID</b> လို့ confirm လုပ်ပြီးပါပြီ။");
+        await notifyUserOrderUpdate(updated, "✅ Owner က order ကို <b>PAID</b> လို့ confirm လုပ်ပြီးပါပြီ။ @BikaMlbbDiamondShopChat ဒီ  group မှာ သင့် id+svid လာပို့ပေးပါ။");
         return ctx.editMessageText(orderReceiptText(updated) + "\n✅ Updated.", {
           parse_mode: "HTML",
           disable_web_page_preview: true,
@@ -2260,7 +2260,7 @@ bot.on("callback_query", async (ctx) => {
         const now = new Date();
         await orders.updateOne({ _id: oid }, { $set: { status: ORDER_STATUS.DELIVERED, updatedAt: now }, $push: { history: { status: ORDER_STATUS.DELIVERED, at: now, by: ctx.from.id } } });
         const updated = await orders.findOne({ _id: oid });
-        await notifyUserOrderUpdate(updated, "📦 Order ကို <b>DELIVERED</b> လုပ်ပြီးပါပြီ။ ကျေးဇူးတင်ပါတယ်။");
+        await notifyUserOrderUpdate(updated, "📦 သင့် Order ကို <b>DELIVERED</b> လုပ်ပြီးပါပြီ။ဂိမ်းထဲဝင်စစ်ကြည့်ပါအုံး ကျေးဇူးတင်ပါတယ်ဗျ။");
         return ctx.editMessageText(orderReceiptText(updated) + "\n📦 Delivered.", {
           parse_mode: "HTML",
           disable_web_page_preview: true,
