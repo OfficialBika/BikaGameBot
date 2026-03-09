@@ -1,46 +1,5 @@
-/**
- * BIKA Pro Slot Bot — FINAL (Webhook, Render Web Service) — NO ERROR BUILD
- * -----------------------------------------------------------------------
- * ✅ Express + Webhook + UptimeRobot GET /
- * ✅ MongoDB (transactions + safe fallback) + driver-safe findOneAndUpdate handling
- * ✅ Owner via ENV OWNER_ID
- * ✅ Treasury: /settotal, /treasury (owner only)
- * ✅ /start one-time bonus 300 (ONLY if treasury has balance)
- * ✅ /dailyclaim group only (Yangon day) 50~100 (ONLY if treasury has balance)
- * ✅ .slot 100 (group) animated edit UI
- *    - ✅ Multi play supported: each user gets their own animation message (reply to their command)
- *    - ✅ MAX_ACTIVE_SLOTS = 10 (global active spins)
- * ✅ /setrtp 90 + /rtp payout pro table
- * ✅ /shop inline buy -> Orders
- *    - ✅ Order status: PENDING → PAID / DELIVERED / CANCELLED
- *    - ✅ Admin inline “Mark Delivered / Mark Paid / Cancel+Refund”
- *    - ✅ User gets “Order ID + Receipt”
- *    - ✅ If balance insufficient: show detailed lack message (not only alert)
- * ✅ /gift @user amount OR reply /gift amount
- * ✅ .gift (reply) amount  => reply .gift 200  (From mention -> To mention)
- * ✅ /addbalance /removebalance (owner, reply/@/id)
- * ✅ /admin inline dashboard + guided input
- * ✅ .mybalance (group only) Pro+ wallet rank system (better badge UI)
- * ✅ .top10 players + /top10 (leaderboard)
- * ✅ /broadcast (owner only) — text or reply broadcast
- * ✅ 🎲 PVP Dice (Option A)
- *    - ✅ .dice 200 -> Challenge + Accept button
- *    - ✅ Winner gets pot 98% (2% house cut)
- *    - ✅ Final message shows “House cut: 2%”
- *    - ✅ Timeout auto-cancel
- *
- * ✅ Web API (for GitHub Pages)
- *    - ✅ GET /api/ping
- *    - ✅ GET /api/balance?userId=...
- *    - ✅ GET /api/top10
- *    - ✅ CORS allow only WEB_ORIGIN + API key header X-API-KEY
- *
- * REQUIRED ENV (additional):
- * - WEB_ORIGIN=https://officialbika.github.io
- * - WEB_API_KEY=YourVerySecretKey
- *
- * NOTE:
- * - Webhook mode on Render: DO NOT call bot.launch() and DO NOT call bot.stop()
+/*
+ * BIKA Pro Slot Bot — FINAL  
  */
 
 require("dotenv").config();
@@ -111,6 +70,12 @@ function mentionHtml(tg) {
   return `<a href="tg://user?id=${id}">${escHtml(name)}</a>`;
 }
 
+function usernameOrName(userLike) {
+  if (!userLike) return "Player";
+  if (userLike.username) return `@${userLike.username}`;
+  return userLike.first_name || userLike.firstName || "Player";
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function getRetryAfterSec(err) {
@@ -130,13 +95,11 @@ async function safeTelegram(fn, { maxRetries = 3 } = {}) {
     } catch (e) {
       lastErr = e;
       const retryAfter = getRetryAfterSec(e);
-      // Telegram 429
       if (String(e?.message || e).includes("429") || retryAfter > 0) {
         const waitMs = Math.max(1000, (retryAfter || 2) * 1000) + Math.floor(Math.random() * 350);
         await sleep(waitMs);
         continue;
       }
-      // Other error: do not loop too much
       break;
     }
   }
@@ -690,7 +653,6 @@ bot.hears(/^\.(top10)(\s+players)?\s*$/i, async (ctx) => {
 });
 
 bot.command("top10", async (ctx) => {
-  // direct call without fake update (safer)
   const list = await users.find({}).sort({ balance: -1 }).limit(10).toArray();
   if (!list.length) return replyHTML(ctx, "📊 Top10 မရှိသေးပါ။");
 
@@ -750,7 +712,6 @@ bot.command("broadcast", async (ctx) => {
     } catch (_) {
       fail++;
     }
-    // small pacing
     await sleep(35);
   }
 
@@ -832,7 +793,6 @@ bot.command("gift", async (ctx) => {
   return doGift(ctx, toUserId, amount, toLabelHtml);
 });
 
-// ✅ Reply .gift 200  (group)
 bot.hears(/^\.(gift)\s+(\d+)\s*$/i, async (ctx) => {
   if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.gift</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
 
@@ -1044,14 +1004,14 @@ bot.command("shop", async (ctx) => {
 });
 
 // -------------------- Slot (Animated Edit UI) --------------------
-const MAX_ACTIVE_SLOTS = 10;
-const activeSlots = new Set(); // userId set
+const MAX_ACTIVE_SLOTS = 2;
+const activeSlots = new Set();
 console.log(`🎰 MAX_ACTIVE_SLOTS: ${MAX_ACTIVE_SLOTS}`);
 
 const SLOT = {
   minBet: 50,
   maxBet: 5000,
-  cooldownMs: 3000,
+  cooldownMs: 1500,
   capPercent: 0.30,
   reels: [
     [
@@ -1090,7 +1050,7 @@ const SLOT = {
     "🍉,🍉,🍉": 7,
     "🍋,🍋,🍋": 5,
     "🍒,🍒,🍒": 3,
-    ANY2: 1.5,
+    ANY2: 1.4,
   },
 };
 
@@ -1128,7 +1088,6 @@ function slotArt(a, b, c) {
   return `┏━━━━━━━━━━━━━━━━━━┓\n┃  ${box(a)}  |  ${box(b)}  |  ${box(c)}  ┃\n┗━━━━━━━━━━━━━━━━━━┛`;
 }
 
-// simplified — remove sound text, keep only short note
 function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
   const art = slotArt(a, b, c);
 
@@ -1137,20 +1096,16 @@ function spinFrame(a, b, c, note = "Spinning...", vibe = "spin") {
       ? "🏆✨ WIN GLOW! ✨🏆"
       : vibe === "lose"
       ? "🥀 BAD LUCK… 🥀"
-      : vibe === "jackpot1"
-      ? "🎉🎉🎉 JACKPOT HIT! 🎉🎉🎉"
-      : vibe === "jackpot2"
-      ? "💎🏆 777 MEGA WIN! 🏆💎"
+      : vibe === "jackpot"
+      ? "💎🏆 777 JACKPOT! 🏆💎"
       : "🎰 BIKA Pro Slot";
-
-  const noteLine = note ? `${escHtml(note)}` : "";
 
   return (
     `<b>${escHtml(vibeHeader)}</b>\n` +
     `━━━━━━━━━━━━\n` +
     `<pre>${escHtml(art)}</pre>\n` +
     `━━━━━━━━━━━━\n` +
-    `${noteLine}`
+    `${escHtml(note)}`
   );
 }
 
@@ -1230,19 +1185,31 @@ async function runSlotSpinAnimated(ctx, bet) {
     const messageId = sent?.message_id;
 
     const frames = [
-      { a: randomSymbolFromReel(SLOT.reels[0]), b: randomSymbolFromReel(SLOT.reels[1]), c: randomSymbolFromReel(SLOT.reels[2]), note: "speed up!", vibe: "spin", delay: 650 },
-      { a: randomSymbolFromReel(SLOT.reels[0]), b: randomSymbolFromReel(SLOT.reels[1]), c: randomSymbolFromReel(SLOT.reels[2]), note: "rolling…", vibe: "spin", delay: 650 },
-      { a: finalA, b: randomSymbolFromReel(SLOT.reels[1]), c: randomSymbolFromReel(SLOT.reels[2]), note: "locking 1st reel…", vibe: "lock", delay: 850 },
-      { a: finalA, b: finalB, c: randomSymbolFromReel(SLOT.reels[2]), note: "locking 2nd reel…", vibe: "lock", delay: 850 },
-      { a: finalA, b: finalB, c: finalC, note: "result!", vibe: "lock", delay: 900 },
+      {
+        a: randomSymbolFromReel(SLOT.reels[0]),
+        b: randomSymbolFromReel(SLOT.reels[1]),
+        c: randomSymbolFromReel(SLOT.reels[2]),
+        note: "rolling…",
+        vibe: "spin",
+        delay: 320,
+      },
+      {
+        a: finalA,
+        b: randomSymbolFromReel(SLOT.reels[1]),
+        c: randomSymbolFromReel(SLOT.reels[2]),
+        note: "locking…",
+        vibe: "spin",
+        delay: 380,
+      },
+      {
+        a: finalA,
+        b: finalB,
+        c: finalC,
+        note: "result!",
+        vibe: isJackpot ? "jackpot" : win ? "glow" : "lose",
+        delay: 450,
+      },
     ];
-
-    if (win && !isJackpot) frames.push({ a: finalA, b: finalB, c: finalC, note: "shining… payout loading…", vibe: "glow", delay: 900 });
-    if (isJackpot) {
-      frames.push({ a: finalA, b: finalB, c: finalC, note: "BOOM! 🔥🔥🔥", vibe: "jackpot1", delay: 900 });
-      frames.push({ a: finalA, b: finalB, c: finalC, note: "paying now…", vibe: "jackpot2", delay: 900 });
-    }
-    if (!win) frames.push({ a: finalA, b: finalB, c: finalC, note: "try again… 🍀", vibe: "lose", delay: 900 });
 
     for (const f of frames) {
       await sleep(f.delay);
@@ -1289,7 +1256,6 @@ async function runSlotSpinAnimated(ctx, bet) {
   }
 }
 
-// 🔥 .slot handler — fire & forget so multi users can spin in parallel
 bot.hears(/^\.(slot)\s+(\d+)\s*$/i, async (ctx) => {
   if (!isGroupChat(ctx)) {
     return replyHTML(ctx, "ℹ️ <code>.slot</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
@@ -1298,8 +1264,9 @@ bot.hears(/^\.(slot)\s+(\d+)\s*$/i, async (ctx) => {
   const bet = parseInt(ctx.match[2], 10);
   if (!Number.isFinite(bet) || bet <= 0) return;
 
-  // main spin အတွက် await မလုပ်ဘဲ ချက်ချင်း run — animation background မှာ လုပ်သွားမယ်
-  runSlotSpinAnimated(ctx, bet).catch((err) => console.error("slot spin error:", err));
+  runSlotSpinAnimated(ctx, bet).catch((err) => {
+    console.error("slot spin error:", err);
+  });
 });
 
 // -------------------- RTP monitor + /setrtp --------------------
@@ -1679,7 +1646,7 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
   }
 }
 
-// -------------------- 🎲 PVP Dice (Option A) --------------------
+// -------------------- 🎲 PVP Dice (Reply-only target locked) --------------------
 const DICE = {
   minBet: 50,
   maxBet: 5000,
@@ -1687,7 +1654,7 @@ const DICE = {
   maxActive: 20,
 };
 
-const activeDiceChallenges = new Map(); // challengeId -> data
+const activeDiceChallenges = new Map();
 
 function makeDiceChallengeId(chatId, msgId) {
   return `${chatId}:${msgId}`;
@@ -1702,35 +1669,65 @@ function diceChallengeKeyboard(challengeId) {
   };
 }
 
-function diceChallengeText(challenger, bet) {
+function diceChallengeText(challenger, target, bet) {
+  const challengerName = challenger?.username
+    ? `@${challenger.username}`
+    : challenger?.first_name || "Player";
+
+  const targetName = target?.username
+    ? `@${target.username}`
+    : target?.first_name || "Player";
+
   return (
     `🎲 <b>Dice Duel Challenge</b>\n` +
-    `━━━━━━━━━━\n` +
-    `Challenger: ${mentionHtml(challenger)}\n` +
+    `━━━━━━━━━━━━\n` +
+    `စိန်ခေါ်သူ: <b>${escHtml(challengerName)}</b>\n` +
+    `လက်ခံသူ: <b>${escHtml(targetName)}</b>\n` +
     `Bet: <b>${fmt(bet)}</b> ${COIN}\n` +
     `Winner gets: <b>98%</b> (House cut: <b>2%</b>)\n` +
-    `━━━━━━━━━━\n` +
-    `✅ Accept ကိုနှိပ်ပြီး ပြိုင်ပွဲဝင်ပါ။\n` +
+    `━━━━━━━━━━━━\n` +
+    `Reply ထောက်ထားတဲ့သူပဲ Accept လုပ်နိုင်ပါတယ်。\n` +
     `⏳ Timeout: <b>${Math.floor(DICE.timeoutMs / 1000)}s</b>`
   );
 }
 
 async function sendDice(chatId, replyToMsgId) {
-  // Telegram dice animation
   return safeTelegram(() => bot.telegram.sendDice(chatId, { reply_to_message_id: replyToMsgId }));
 }
 
 bot.hears(/^\.(dice)\s+(\d+)\s*$/i, async (ctx) => {
   if (!isGroupChat(ctx)) return replyHTML(ctx, "ℹ️ <code>.dice</code> ကို group ထဲမှာပဲ သုံးနိုင်ပါတယ်။");
+
   const bet = parseInt(ctx.match[2], 10);
   if (!Number.isFinite(bet) || bet <= 0) return;
 
   if (bet < DICE.minBet || bet > DICE.maxBet) {
     return replyHTML(
       ctx,
-      `🎲 <b>Dice Duel</b>\n━━━━━━━━━━━\nUsage: <code>.dice 200</code>\nMin: <b>${fmt(DICE.minBet)}</b> ${COIN}\nMax: <b>${fmt(DICE.maxBet)}</b> ${COIN}`,
+      `🎲 <b>Dice Duel</b>\n━━━━━━━━━━━\nUsage: Reply + <code>.dice 200</code>\nMin: <b>${fmt(DICE.minBet)}</b> ${COIN}\nMax: <b>${fmt(DICE.maxBet)}</b> ${COIN}`,
       { reply_to_message_id: ctx.message?.message_id }
     );
+  }
+
+  const replyFrom = ctx.message?.reply_to_message?.from;
+  if (!replyFrom?.id) {
+    return replyHTML(
+      ctx,
+      `⚠️ <b>Reply လုပ်ပြီးသုံးပါ</b>\n━━━━━━━━━━━━\nExample: Reply + <code>.dice 200</code>`,
+      { reply_to_message_id: ctx.message?.message_id }
+    );
+  }
+
+  if (replyFrom.is_bot) {
+    return replyHTML(ctx, "🤖 Bot ကို challenge မလုပ်နိုင်ပါ။", {
+      reply_to_message_id: ctx.message?.message_id,
+    });
+  }
+
+  if (replyFrom.id === ctx.from.id) {
+    return replyHTML(ctx, "😅 ကိုယ့်ကိုကိုယ် challenge မလုပ်နိုင်ပါ။", {
+      reply_to_message_id: ctx.message?.message_id,
+    });
   }
 
   if (activeDiceChallenges.size >= DICE.maxActive) {
@@ -1742,17 +1739,19 @@ bot.hears(/^\.(dice)\s+(\d+)\s*$/i, async (ctx) => {
   }
 
   await ensureUser(ctx.from);
-  const u = await getUser(ctx.from.id);
-  if (toNum(u?.balance) < bet) {
-    const lack = Math.max(0, bet - toNum(u?.balance));
+  await ensureUser(replyFrom);
+
+  const challengerUser = await getUser(ctx.from.id);
+  if (toNum(challengerUser?.balance) < bet) {
+    const lack = Math.max(0, bet - toNum(challengerUser?.balance));
     return replyHTML(
       ctx,
-      `❌ <b>လက်ကျန်ငွေ မလုံလောက်ပါ</b>\n━━━━━━━━━━━\nBet: <b>${fmt(bet)}</b> ${COIN}\nYour Balance: <b>${fmt(u?.balance)}</b> ${COIN}\nNeed More: <b>${fmt(lack)}</b> ${COIN}\n━━━━━━━━━━━━\n💡 slot / dailyclaim နဲ့ ငွေစုဆောင်းပြီးမှ ပြန်လာပါ။`,
+      `❌ <b>လက်ကျန်ငွေ မလုံလောက်ပါ</b>\n━━━━━━━━━━━\nBet: <b>${fmt(bet)}</b> ${COIN}\nYour Balance: <b>${fmt(challengerUser?.balance)}</b> ${COIN}\nNeed More: <b>${fmt(lack)}</b> ${COIN}`,
       { reply_to_message_id: ctx.message?.message_id }
     );
   }
 
-  const sent = await replyHTML(ctx, diceChallengeText(ctx.from, bet), {
+  const sent = await replyHTML(ctx, diceChallengeText(ctx.from, replyFrom, bet), {
     reply_markup: { inline_keyboard: [[{ text: "✅ Accept Dice Duel", callback_data: "DICE:TEMP" }]] },
     reply_to_message_id: ctx.message?.message_id,
   });
@@ -1760,9 +1759,14 @@ bot.hears(/^\.(dice)\s+(\d+)\s*$/i, async (ctx) => {
   if (!sent?.message_id) return;
 
   const challengeId = makeDiceChallengeId(ctx.chat.id, sent.message_id);
-  // update keyboard with real id
+
   await safeTelegram(() =>
-    ctx.telegram.editMessageReplyMarkup(ctx.chat.id, sent.message_id, undefined, diceChallengeKeyboard(challengeId))
+    ctx.telegram.editMessageReplyMarkup(
+      ctx.chat.id,
+      sent.message_id,
+      undefined,
+      diceChallengeKeyboard(challengeId)
+    )
   );
 
   activeDiceChallenges.set(challengeId, {
@@ -1772,6 +1776,12 @@ bot.hears(/^\.(dice)\s+(\d+)\s*$/i, async (ctx) => {
     bet,
     challengerId: ctx.from.id,
     challengerName: ctx.from.first_name || ctx.from.username || "Player",
+    challengerUsername: ctx.from.username || null,
+
+    targetUserId: replyFrom.id,
+    targetName: replyFrom.first_name || replyFrom.username || "Player",
+    targetUsername: replyFrom.username || null,
+
     createdAt: Date.now(),
     status: "OPEN",
     timeoutHandle: setTimeout(async () => {
@@ -1785,7 +1795,7 @@ bot.hears(/^\.(dice)\s+(\d+)\s*$/i, async (ctx) => {
             c.chatId,
             c.msgId,
             undefined,
-            `⏳ <b>Dice Duel Expired</b>\n━━━━━━━━━━━━\nChallenge ပြိုင်ဖက်မရှိလို့ အချိန်ကုန်သွားပါတယ်။\nBet: <b>${fmt(c.bet)}</b> ${COIN}`,
+            `⏳ <b>Dice Duel Expired</b>\n━━━━━━━━━━━━\nစိန်ခေါ်မှု အချိန်ကုန်သွားပါတယ်。\nBet: <b>${fmt(c.bet)}</b> ${COIN}`,
             { parse_mode: "HTML", disable_web_page_preview: true }
           )
         );
@@ -2077,7 +2087,7 @@ bot.on("callback_query", async (ctx) => {
       activeDiceChallenges.delete(challengeId);
       await ctx.answerCbQuery("Cancelled");
       return ctx.editMessageText(
-        `❌ <b>Dice Duel Cancelled</b>\n━━━━━━━━━━━━\nChallenger cancelled.\nBet: <b>${fmt(c.bet)}</b> ${COIN}`,
+        `❌ <b>Dice Duel Cancelled</b>\n━━━━━━━━━━━━\nစိန်ခေါ်မှုကို ဖျက်လိုက်ပါတယ်。\nBet: <b>${fmt(c.bet)}</b> ${COIN}`,
         { parse_mode: "HTML", disable_web_page_preview: true }
       );
     }
@@ -2087,13 +2097,14 @@ bot.on("callback_query", async (ctx) => {
         await ctx.answerCbQuery("Already closed", { show_alert: true });
         return;
       }
-      if (ctx.from.id === c.challengerId) {
-        await ctx.answerCbQuery("You can't accept your own challenge", { show_alert: true });
+
+      if (ctx.from.id !== c.targetUserId) {
+        await ctx.answerCbQuery("ဒီ duel ကို reply ထောက်ထားတဲ့သူပဲ Accept လုပ်နိုင်ပါတယ်", { show_alert: true });
         return;
       }
 
-      // check both balances again at accept time
       await ensureUser(ctx.from);
+
       const challenger = await getUser(c.challengerId);
       const opponent = await getUser(ctx.from.id);
 
@@ -2103,7 +2114,7 @@ bot.on("callback_query", async (ctx) => {
         activeDiceChallenges.delete(challengeId);
         await ctx.answerCbQuery("Challenger has insufficient balance", { show_alert: true });
         return ctx.editMessageText(
-          `⚠️ <b>Challenge Failed</b>\n━━━━━━━━━━━━\nChallenger balance မလုံလောက်ပါ။`,
+          `⚠️ <b>Challenge Failed</b>\n━━━━━━━━━━━━\nစိန်ခေါ်သူ balance မလုံလောက်ပါ။`,
           { parse_mode: "HTML", disable_web_page_preview: true }
         );
       }
@@ -2113,12 +2124,11 @@ bot.on("callback_query", async (ctx) => {
         const lack = Math.max(0, c.bet - toNum(opponent?.balance));
         return replyHTML(
           ctx,
-          `❌ <b>Balance မလုံလောက်ပါ</b>\n━━━━━━━━━━━━\nBet: <b>${fmt(c.bet)}</b> ${COIN}\nYour Balance: <b>${fmt(opponent?.balance)}</b> ${COIN}\nNeed More: <b>${fmt(lack)}</b> ${COIN}`,
+          `❌ <b>လက်ကျန်ငွေ မလုံလောက်ပါ</b>\n━━━━━━━━━━━━\nBet: <b>${fmt(c.bet)}</b> ${COIN}\nYour Balance: <b>${fmt(opponent?.balance)}</b> ${COIN}\nNeed More: <b>${fmt(lack)}</b> ${COIN}`,
           { reply_to_message_id: c.msgId }
         );
       }
 
-      // lock challenge
       c.status = "PLAYING";
       c.opponentId = ctx.from.id;
       clearTimeout(c.timeoutHandle);
@@ -2126,7 +2136,6 @@ bot.on("callback_query", async (ctx) => {
 
       await ctx.answerCbQuery("Accepted!");
 
-      // take both bets -> treasury
       try {
         await ensureTreasury();
         await userPayToTreasury(c.challengerId, c.bet, { type: "dice_bet", challengeId });
@@ -2135,19 +2144,28 @@ bot.on("callback_query", async (ctx) => {
         console.error("dice bet take error:", e);
         c.status = "FAILED";
         activeDiceChallenges.delete(challengeId);
-        return ctx.editMessageText(`⚠️ <b>Error</b>\n━━━━━━━━━━━━\nBet process error.`, { parse_mode: "HTML" });
+        return ctx.editMessageText(`⚠️ <b>Error</b>\n━━━━━━━━━━━━\nBet process error.`, {
+          parse_mode: "HTML",
+        });
       }
 
       const pot = c.bet * 2;
       const payout = Math.floor(pot * (1 - HOUSE_CUT_PERCENT));
       const houseCut = pot - payout;
 
-      // update message: duel started
+      const challengerLabel = c.challengerUsername
+        ? `@${c.challengerUsername}`
+        : c.challengerName;
+
+      const opponentLabel = c.targetUsername
+        ? `@${c.targetUsername}`
+        : c.targetName;
+
       await safeTelegram(() =>
         ctx.editMessageText(
           `🎲 <b>Dice Duel Started!</b>\n━━━━━━━━━━━━\n` +
-            `Challenger: <b>${escHtml(challenger?.firstName || challenger?.username || "Challenger")}</b>\n` +
-            `Opponent: <b>${escHtml(opponent?.firstName || opponent?.username || "Opponent")}</b>\n` +
+            `စိန်ခေါ်သူ: <b>${escHtml(challengerLabel)}</b>\n` +
+            `လက်ခံသူ: <b>${escHtml(opponentLabel)}</b>\n` +
             `Bet: <b>${fmt(c.bet)}</b> ${COIN}\n` +
             `Pot: <b>${fmt(pot)}</b> ${COIN}\n` +
             `House cut: <b>2%</b> (${fmt(houseCut)} ${COIN})\n` +
@@ -2156,7 +2174,6 @@ bot.on("callback_query", async (ctx) => {
         )
       );
 
-      // dice animation (two rolls)
       let d1 = null, d2 = null;
       try {
         const r1 = await sendDice(c.chatId, c.msgId);
@@ -2168,52 +2185,57 @@ bot.on("callback_query", async (ctx) => {
         console.error("sendDice error:", e);
       }
 
-      // fallback if dice failed
       if (!d1 || !d2) {
         d1 = randInt(1, 6);
         d2 = randInt(1, 6);
       }
 
       let winnerId = null;
-      let resultLine = "";
+      let winnerLabel = "";
 
       if (d1 > d2) {
         winnerId = c.challengerId;
-        resultLine = `🏆 Winner: <b>${escHtml(challenger?.firstName || challenger?.username || "Challenger")}</b>`;
+        winnerLabel = challengerLabel;
       } else if (d2 > d1) {
         winnerId = c.opponentId;
-        resultLine = `🏆 Winner: <b>${escHtml(opponent?.firstName || opponent?.username || "Opponent")}</b>`;
+        winnerLabel = opponentLabel;
       } else {
-        // tie => refund both (no house cut)
         try {
           await treasuryPayToUser(c.challengerId, c.bet, { type: "dice_refund", challengeId, reason: "tie" });
           await treasuryPayToUser(c.opponentId, c.bet, { type: "dice_refund", challengeId, reason: "tie" });
         } catch (_) {}
+
         c.status = "DONE";
         activeDiceChallenges.delete(challengeId);
 
         return ctx.editMessageText(
           `🎲 <b>Dice Duel Result</b>\n━━━━━━━━━━━━\n` +
-            `Challenger roll: <b>${d1}</b>\n` +
-            `Opponent roll: <b>${d2}</b>\n` +
+            `စိန်ခေါ်သူ: <b>${escHtml(challengerLabel)}</b> → <b>${d1}</b>\n` +
+            `လက်ခံသူ: <b>${escHtml(opponentLabel)}</b> → <b>${d2}</b>\n` +
             `━━━━━━━━━━━━\n` +
             `🤝 <b>TIE!</b> — Bet refund ပြန်ပေးပြီးပါပြီ။`,
           { parse_mode: "HTML", disable_web_page_preview: true }
         );
       }
 
-      // pay winner 98%
       try {
-        await treasuryPayToUser(winnerId, payout, { type: "dice_win", challengeId, pot, payout, houseCut });
+        await treasuryPayToUser(winnerId, payout, {
+          type: "dice_win",
+          challengeId,
+          pot,
+          payout,
+          houseCut,
+        });
       } catch (e) {
         console.error("dice payout error:", e);
-        // if payout fail => refund both
         try {
           await treasuryPayToUser(c.challengerId, c.bet, { type: "dice_refund", challengeId, reason: "payout_fail" });
           await treasuryPayToUser(c.opponentId, c.bet, { type: "dice_refund", challengeId, reason: "payout_fail" });
         } catch (_) {}
+
         c.status = "DONE";
         activeDiceChallenges.delete(challengeId);
+
         return ctx.editMessageText(
           `⚠️ <b>Dice Duel Error</b>\n━━━━━━━━━━━━━━━━\nPayout error ဖြစ်လို့ refund ပြန်ပေးလိုက်ပါတယ်။`,
           { parse_mode: "HTML", disable_web_page_preview: true }
@@ -2225,10 +2247,10 @@ bot.on("callback_query", async (ctx) => {
 
       return ctx.editMessageText(
         `🎲 <b>Dice Duel Result</b>\n━━━━━━━━━━━━━━━━\n` +
-          `Challenger roll: <b>${d1}</b>\n` +
-          `Opponent roll: <b>${d2}</b>\n` +
+          `စိန်ခေါ်သူ: <b>${escHtml(challengerLabel)}</b> → <b>${d1}</b>\n` +
+          `လက်ခံသူ: <b>${escHtml(opponentLabel)}</b> → <b>${d2}</b>\n` +
           `━━━━━━━━━━━━━━━━\n` +
-          `${resultLine}\n` +
+          `🏆 Winner: <b>${escHtml(winnerLabel)}</b>\n` +
           `💰 Pot: <b>${fmt(pot)}</b> ${COIN}\n` +
           `✅ Winner gets: <b>${fmt(payout)}</b> ${COIN} (98%)\n` +
           `🏦 House cut: <b>2%</b> (${fmt(houseCut)} ${COIN})`,
@@ -2240,7 +2262,6 @@ bot.on("callback_query", async (ctx) => {
     return;
   }
 
-  // default
   await ctx.answerCbQuery("OK");
 });
 
@@ -2251,14 +2272,12 @@ function isAllowedOrigin(origin) {
   if (!origin) return false;
   const o = String(origin);
   if (o === WEB_ORIGIN) return true;
-  // optional: allow localhost for testing
   if (o.startsWith("http://localhost:")) return true;
   if (o.startsWith("http://127.0.0.1:")) return true;
   return false;
 }
 
 function requireApiKey(req) {
-  // If key not set => block all protected endpoints
   if (!WEB_API_KEY) return false;
   const key = req.headers["x-api-key"];
   return key && String(key) === String(WEB_API_KEY);
@@ -2280,7 +2299,6 @@ function requireApiKey(req) {
   app.use((req, res, next) => {
     const origin = req.headers.origin;
 
-    // allow only your github pages origin (and optionally localhost)
     if (origin && isAllowedOrigin(origin)) {
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Vary", "Origin");
@@ -2293,16 +2311,14 @@ function requireApiKey(req) {
     next();
   });
 
-  // Health check endpoint for UptimeRobot
+  // Health check endpoint
   app.get("/", (req, res) => res.status(200).send("OK"));
 
-  // -------------------- Web API endpoints (3) --------------------
-  // 1) Ping
+  // -------------------- Web API endpoints --------------------
   app.get("/api/ping", (req, res) => {
     return res.json({ ok: true, msg: "pong", time: new Date().toISOString() });
   });
 
-  // 2) Balance (protected)
   app.get("/api/balance", async (req, res) => {
     try {
       if (!requireApiKey(req)) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
@@ -2325,7 +2341,6 @@ function requireApiKey(req) {
     }
   });
 
-  // 3) Top10 (protected)
   app.get("/api/top10", async (req, res) => {
     try {
       if (!requireApiKey(req)) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
@@ -2343,7 +2358,7 @@ function requireApiKey(req) {
     }
   });
 
-  // Telegram will POST updates here
+  // Telegram webhook
   app.post(webhookPath, (req, res) => {
     bot.handleUpdate(req.body, res);
   });
@@ -2371,7 +2386,7 @@ function requireApiKey(req) {
   process.exit(1);
 });
 
-// ✅ Safe shutdown (Webhook mode: DO NOT call bot.stop())
+// -------------------- Safe shutdown --------------------
 async function safeShutdown(signal) {
   console.log(`🧯 Shutdown signal: ${signal}`);
   try {
