@@ -1,17 +1,5 @@
 /*
- * BIKA Shan Koe Mee — Reply PvP Module
- * Rule:
- * - Reply + .shan 500
- * - replied user only can accept
- * - 3 cards each
- * - Priority:
- *   1) Shan Koe Mee (same rank x3)
- *   2) Zat Toe (J/Q/K only)
- *   3) Suit Triple (same suit x3)
- *   4) Normal points
- * - Normal win: pot 98%
- * - Suit Triple win: pot + extra one bet (A option)
- * - Tie: refund both
+ * BIKA Shan Koe Mee
  */
 
 function registerShanGame(deps) {
