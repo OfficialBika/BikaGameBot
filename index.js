@@ -36,7 +36,7 @@ let BOT_INFO = null;
 
 // -------------------- UI helpers --------------------
 const COIN = "MMK";
-const HOUSE_CUT_PERCENT = 0.02;
+const HOUSE_CUT_PERCENT = 0.05;
 
 function escHtml(s) {
   return String(s ?? "")
@@ -1993,9 +1993,9 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
 // -------------------- Dice PvP --------------------
 const DICE = {
   minBet: 10,
-  maxBet: 10000,
+  maxBet: 20000,
   timeoutMs: 60_000,
-  maxActive: 2,
+  maxActive: 4,
 };
 
 const activeDiceChallenges = new Map();
@@ -2144,9 +2144,9 @@ Bet: <b>${fmt(c.bet)}</b> ${COIN}`
 // -------------------- Shan Koe Mee PvP --------------------
 const SHAN = {
   minBet: 10,
-  maxBet: 10000,
+  maxBet: 20000,
   timeoutMs: 60_000,
-  maxActive: 2,
+  maxActive: 4,
 };
 
 const activeShanChallenges = new Map();
