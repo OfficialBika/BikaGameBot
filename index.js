@@ -1333,12 +1333,12 @@ bot.command("removebalance", async (ctx) => {
 });
 // -------------------- Shop + Orders --------------------
 const SHOP_ITEMS = [
-  { id: "dia11", name: "Diamonds 11 💎", price: 200000 },
-  { id: "dia22", name: "Diamonds 22 💎", price: 390000 },
-  { id: "dia33", name: "Diamonds 33 💎", price: 580000 },
-  { id: "dia44", name: "Diamonds 44 💎", price: 700000 },
-  { id: "dia55", name: "Diamonds 55 💎", price: 850000 },
-  { id: "wp1", name: "Weekly Pass 🎟️", price: 1500000 },
+  { id: "dia11", name: "Diamonds 11 💎", price: 500000 },
+  { id: "dia22", name: "Diamonds 22 💎", price: 1000000 },
+  { id: "dia33", name: "Diamonds 33 💎", price: 1500000 },
+  { id: "dia44", name: "Diamonds 44 💎", price: 2000000 },
+  { id: "dia55", name: "Diamonds 55 💎", price: 2500000 },
+  { id: "wp1", name: "Weekly Pass 🎟️", price: 9000000 },
 ];
 
 const ORDER_STATUS = {
@@ -2123,7 +2123,7 @@ async function notifyUserOrderUpdate(o, noteLine = "") {
 // -------------------- Dice PvP --------------------
 const DICE = {
   minBet: 10,
-  maxBet: 20000,
+  maxBet: 40000,
   timeoutMs: 60_000,
   maxActive: 4,
 };
@@ -2274,7 +2274,7 @@ Bet: <b>${fmt(c.bet)}</b> ${COIN}`
 // -------------------- Shan Koe Mee PvP --------------------
 const SHAN = {
   minBet: 10,
-  maxBet: 20000,
+  maxBet: 40000,
   timeoutMs: 60_000,
   maxActive: 4,
 };
