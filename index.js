@@ -830,20 +830,45 @@ bot.command("addvip", async (ctx) => {
   const t = await ensureTreasury();
   if (!isOwner(ctx, t)) return replyHTML(ctx, "⛔ Owner only command.");
 
-  const { mode, target } = parseTargetAndAmount(ctx.message?.text || "");
+  const { mode, target } = parseTargetOnly(ctx.message?.text || "");
   const r = await resolveTargetFromCtx(ctx, mode, target);
-  if (!r.ok) return replyHTML(ctx, "👤 VIP ပေးမယ့်သူကို Reply (သို့) @username နဲ့ ရွေးပေးပါ။");
+
+  if (!r.ok) {
+    return replyHTML(
+      ctx,
+      `🌟 <b>Add VIP</b>\n━━━━━━━━━━━━\n` +
+        `Usage:\n` +
+        `• Reply + <code>/addvip</code>\n` +
+        `• <code>/addvip @username</code>\n` +
+        `• <code>/addvip 123456789</code>`
+    );
+  }
 
   try {
     await users.updateOne(
       { userId: r.userId },
-      { $set: { isVip: true, updatedAt: new Date() } },
+      {
+        $set: {
+          isVip: true,
+          updatedAt: new Date(),
+        },
+        $setOnInsert: {
+          userId: r.userId,
+          balance: 0,
+          createdAt: new Date(),
+          startBonusClaimed: false,
+          lastDailyClaimAt: null,
+        },
+      },
       { upsert: true }
     );
-    return replyHTML(ctx, `🌟 <b>VIP Added Successfully</b>
-━━━━━━━━━━━━━━━━
-User: ${r.labelHtml}
-အဆင့်အတန်း: <b>VIP Member</b>`);
+
+    return replyHTML(
+      ctx,
+      `🌟 <b>VIP Added Successfully</b>\n━━━━━━━━━━━━━━━━\n` +
+        `User: ${r.labelHtml}\n` +
+        `Status: <b>VIP Member</b>`
+    );
   } catch (e) {
     console.error("addvip error:", e);
     return replyHTML(ctx, "⚠️ VIP ထည့်ရာတွင် အမှားအယွင်းရှိပါသည်။");
@@ -853,16 +878,48 @@ User: ${r.labelHtml}
 bot.command("removevip", async (ctx) => {
   const t = await ensureTreasury();
   if (!isOwner(ctx, t)) return replyHTML(ctx, "⛔ Owner only command.");
-  const { mode, target } = parseTargetAndAmount(ctx.message?.text || "");
+
+  const { mode, target } = parseTargetOnly(ctx.message?.text || "");
   const r = await resolveTargetFromCtx(ctx, mode, target);
-  if (!r.ok) return replyHTML(ctx, "👤 User ရွေးပေးပါ။");
 
-  await users.updateOne({ userId: r.userId }, { $set: { isVip: false, updatedAt: new Date() } }, { upsert: true });
-  return replyHTML(ctx, `❌ <b>VIP Status Removed</b>
-━━━━━━━━━━━━━━━━
-User: ${r.labelHtml}`);
+  if (!r.ok) {
+    return replyHTML(
+      ctx,
+      `❌ <b>Remove VIP</b>\n━━━━━━━━━━━━\n` +
+        `Usage:\n` +
+        `• Reply + <code>/removevip</code>\n` +
+        `• <code>/removevip @username</code>\n` +
+        `• <code>/removevip 123456789</code>`
+    );
+  }
+
+  try {
+    const existing = await getUser(r.userId);
+    if (!existing) {
+      return replyHTML(ctx, `⚠️ User not found: ${r.labelHtml}`);
+    }
+
+    await users.updateOne(
+      { userId: r.userId },
+      {
+        $set: {
+          isVip: false,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    return replyHTML(
+      ctx,
+      `❌ <b>VIP Status Removed</b>\n━━━━━━━━━━━━━━━━\n` +
+        `User: ${r.labelHtml}\n` +
+        `Status: <b>Normal User</b>`
+    );
+  } catch (e) {
+    console.error("removevip error:", e);
+    return replyHTML(ctx, "⚠️ VIP ဖြုတ်ရာတွင် အမှားအယွင်းရှိပါသည်။");
+  }
 });
-
 // -------------------- Treasury commands --------------------
 bot.command("settotal", async (ctx) => {
   const amount = parseAmount(ctx.message?.text || "");
@@ -1268,6 +1325,36 @@ async function resolveTargetFromCtx(ctx, mode, target) {
   return { ok: false, reason: "NO_TARGET" };
 }
 
+function parseTargetOnly(text) {
+  const parts = String(text || "").trim().split(/\s+/);
+
+  // Reply mode: /addvip  သို့ /removevip
+  if (parts.length === 1) {
+    return { mode: "reply", target: null };
+  }
+
+  // Explicit mode: /addvip @username  သို့ /addvip 123456789
+  if (parts.length >= 2) {
+    const rawTarget = parts[1];
+
+    if (rawTarget.startsWith("@") && rawTarget.length > 1) {
+      return {
+        mode: "explicit",
+        target: { type: "username", value: rawTarget.slice(1).toLowerCase() },
+      };
+    }
+
+    if (/^\d+$/.test(rawTarget)) {
+      return {
+        mode: "explicit",
+        target: { type: "userId", value: parseInt(rawTarget, 10) },
+      };
+    }
+  }
+
+  return { mode: "invalid", target: null };
+}
+
 bot.command("addbalance", async (ctx) => {
   const t = await ensureTreasury();
   if (!isOwner(ctx, t)) return replyHTML(ctx, "⛔ Owner only command.");
@@ -1462,7 +1549,7 @@ const SLOT = {
     "🍉,🍉,🍉": 7,
     "🍋,🍋,🍋": 5,
     "🍒,🍒,🍒": 3,
-    ANY2: 1.5,
+    ANY2: 1.4,
   },
 };
 
