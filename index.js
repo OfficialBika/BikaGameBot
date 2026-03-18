@@ -745,7 +745,7 @@ function spinSlotOutcomeForUser(u) {
   }
 
   // VIP users keep the boosted chance to land a winning combo.
-  const wantsWin = Math.random() < 0.90;
+  const wantsWin = Math.random() < 0.60;
 
   if (wantsWin) {
     const winningCombos = Object.entries(SLOT.payouts)
@@ -773,7 +773,7 @@ function decideDiceDuelValues(userA, userB) {
   const vipA = !!userA?.isVip;
   const vipB = !!userB?.isVip;
 
-  if (vipA && !vipB && Math.random() < 0.90) {
+  if (vipA && !vipB && Math.random() < 0.60) {
     const pairs = [
       [6, 1], [6, 2], [6, 3], [6, 4], [6, 5],
       [5, 1], [5, 2], [5, 3], [5, 4],
@@ -782,7 +782,7 @@ function decideDiceDuelValues(userA, userB) {
       [2, 1],
     ];
     [d1, d2] = chooseWeighted(pairs);
-  } else if (vipB && !vipA && Math.random() < 0.90) {
+  } else if (vipB && !vipA && Math.random() < 0.60) {
     const pairs = [
       [1, 6], [2, 6], [3, 6], [4, 6], [5, 6],
       [1, 5], [2, 5], [3, 5], [4, 5],
@@ -808,14 +808,14 @@ function drawShanHandsForUsers(userA, userB) {
   const vipA = !!userA?.isVip;
   const vipB = !!userB?.isVip;
 
-  if (vipA && !vipB && Math.random() < 0.90) {
+  if (vipA && !vipB && Math.random() < 0.60) {
     for (let i = 0; i < 120; i++) {
       const out = tryOnce();
       if (out.result.winner === "A") return out;
     }
   }
 
-  if (vipB && !vipA && Math.random() < 0.90) {
+  if (vipB && !vipA && Math.random() < 0.60) {
     for (let i = 0; i < 120; i++) {
       const out = tryOnce();
       if (out.result.winner === "B") return out;
