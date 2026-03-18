@@ -1508,9 +1508,9 @@ const activeSlots = new Set();
 console.log(`🎰 MAX_ACTIVE_SLOTS: ${MAX_ACTIVE_SLOTS}`);
 
 const SLOT = {
-  minBet: 50,
+  minBet: 1,
   maxBet: 5000,
-  cooldownMs: 1200,
+  cooldownMs: 1100,
   capPercent: 0.30,
   reels: [
     [
