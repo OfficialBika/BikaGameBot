@@ -1375,7 +1375,7 @@ async function doGift(ctx, toUserId, amount, toLabelHtml) {
       `🎁 <b>Gift Success</b>\n━━━━━━━━━━━━━━━━\n` +
         `ပေးပို့သူ: ${fromHtml}\n` +
         `လက်ခံရရှိသူ: ${toLabelHtml}\n` +
-        `လင်ဆောင်ပမာဏ: <b>${fmt(amount)}</b> ${COIN}\n` +
+        `လက်ဆောင်ပမာဏ: <b>${fmt(amount)}</b> ${COIN}\n` +
         `စုစုပေါင်း လက်ကျန်ငွေ: <b>${fmt(updatedFrom?.balance)}</b> ${COIN}`,
       { reply_to_message_id: ctx.message?.message_id }
     );
@@ -1643,7 +1643,7 @@ console.log(`🎰 MAX_ACTIVE_SLOTS: ${MAX_ACTIVE_SLOTS}`);
 const SLOT = {
   minBet: 50,
   maxBet: 5000,
-  cooldownMs: 1500,
+  cooldownMs: 1200,
   capPercent: 0.30,
   reels: [
     [
