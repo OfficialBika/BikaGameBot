@@ -463,7 +463,7 @@ async function sendGroupApprovalWarning(ctx, group) {
     group?.botIsAdmin
       ? `⛔ <b>သင့် Group Chat မှာ Bot Owner Approve မပေးထားပါ</b>
 ━━━━━━━━━━━━
-Bot ကို အသုံးပြုဖို့ Owner က ဒီ group ထဲဝင်ပြီး <code>/approve</code> ပေးရပါမယ်။`
+Bot ကို အသုံးပြုဖို့ Owner @Official_Bika က ဒီ group ထဲဝင်ပြီး <code>/approve</code> ပေးရပါမယ်။`
       : `⚠️ <b>ဒီ Group မှာ Bot ကို အရင် Admin ပေးပါ</b>
 ━━━━━━━━━━━━
 Admin ပေးပြီးသွားတာနဲ့ Owner DM မှာ group invite link button ပို့ပေးပါမယ်။
@@ -830,7 +830,7 @@ function decideDiceDuelValues(userA, userB) {
   const vipA = !!userA?.isVip;
   const vipB = !!userB?.isVip;
 
-  if (vipA && !vipB && Math.random() < 0.90) {
+  if (vipA && !vipB && Math.random() < 0.60) {
     const pairs = [
       [6, 1], [6, 2], [6, 3], [6, 4], [6, 5],
       [5, 1], [5, 2], [5, 3], [5, 4],
@@ -839,7 +839,7 @@ function decideDiceDuelValues(userA, userB) {
       [2, 1],
     ];
     [d1, d2] = chooseWeighted(pairs);
-  } else if (vipB && !vipA && Math.random() < 0.90) {
+  } else if (vipB && !vipA && Math.random() < 0.60) {
     const pairs = [
       [1, 6], [2, 6], [3, 6], [4, 6], [5, 6],
       [1, 5], [2, 5], [3, 5], [4, 5],
@@ -865,14 +865,14 @@ function drawShanHandsForUsers(userA, userB) {
   const vipA = !!userA?.isVip;
   const vipB = !!userB?.isVip;
 
-  if (vipA && !vipB && Math.random() < 0.90) {
+  if (vipA && !vipB && Math.random() < 0.60) {
     for (let i = 0; i < 120; i++) {
       const out = tryOnce();
       if (out.result.winner === "A") return out;
     }
   }
 
-  if (vipB && !vipA && Math.random() < 0.90) {
+  if (vipB && !vipA && Math.random() < 0.60) {
     for (let i = 0; i < 120; i++) {
       const out = tryOnce();
       if (out.result.winner === "B") return out;
@@ -1346,7 +1346,7 @@ bot.command("on", async (ctx) => {
 });
 
 // -------------------- Gift --------------------
-const GIFT_COOLDOWN_MS = 10_000;
+const GIFT_COOLDOWN_MS = 5_000;
 const lastGiftAt = new Map();
 
 async function doGift(ctx, toUserId, amount, toLabelHtml) {
