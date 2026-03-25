@@ -112,7 +112,7 @@ STARTED_AT = time.time()
 MAX_ACTIVE_SLOTS = 5
 GIFT_COOLDOWN_MS = 10_000
 DAILY_MIN = 500
-DAILY_MAX = 2000
+DAILY_MAX = 5000
 
 SHOP_ITEMS = [
     {"id": "dia11", "name": "Diamonds 11 💎", "price": 500000},
@@ -169,8 +169,8 @@ SLOT = {
     },
 }
 
-DICE = {"min_bet": 100, "max_bet": 50000, "max_active": 50}
-SHAN = {"min_bet": 100, "max_bet": 100000, "max_active": 50}
+DICE = {"min_bet": 100, "max_bet": 50000, "max_active": 10}
+SHAN = {"min_bet": 100, "max_bet": 50000, "max_active": 10}
 
 SUITS = ["♥", "♦", "♣", "♠"]
 RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
