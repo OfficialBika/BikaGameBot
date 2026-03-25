@@ -127,7 +127,7 @@ STARTED_AT = time.time()
 MAX_ACTIVE_SLOTS = 5
 GIFT_COOLDOWN_MS = 10_000
 DAILY_MIN = 500
-DAILY_MAX = 2000
+DAILY_MAX = 5000
 
 SHOP_ITEMS = [
     {"id": "dia11", "name": "Diamonds 11 💎", "price": 500000},
@@ -184,8 +184,8 @@ SLOT = {
     },
 }
 
-DICE = {"min_bet": 100, "max_bet": 50000, "max_active": 50}
-SHAN = {"min_bet": 100, "max_bet": 100000, "max_active": 50}
+DICE = {"min_bet": 100, "max_bet": 50000, "max_active": 20}
+SHAN = {"min_bet": 100, "max_bet": 50000, "max_active": 20}
 
 SUITS = ["♥", "♦", "♣", "♠"]
 RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
@@ -1128,19 +1128,19 @@ def wallet_rank(balance: int) -> str:
     b = int(balance)
     if b <= 0:
         return "ဖင်ပြောင်ငမွဲ"
-    if b <= 500:
-        return "ဆင်းရဲသား အိမ်ခြေမဲ့"
-    if b <= 1000:
-        return "အိမ်ပိုင်ဝန်းပိုင် ဆင်းရဲသား"
     if b <= 5000:
-        return "လူလတ်တန်းစား"
+        return "အိမ်ခြေမဲ့ ဆင်းရဲသား"
     if b <= 10000:
-        return "သူဌေးပေါက်စ"
+        return "အိမ်ပိုင်ဝန်းပိုင် ဆင်းရဲသား"
+    if b <= 50000:
+        return "လူလတ်တန်းစား"
     if b <= 100000:
-        return "သိန်းကြွယ်သူဌေး"
+        return "သူဌေးပေါက်စ"
     if b <= 1000000:
+        return "သိန်းကြွယ်သူဌေး"
+    if b <= 2000000:
         return "သန်းကြွယ်သူဌေးအကြီးစား"
-    if b <= 50000000:
+    if b <= 30000000:
         return "ကုဋေရှစ်ဆယ် သူဌေးကြီး"
     return "အာကာသသူဌေး"
 
