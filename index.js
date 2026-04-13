@@ -290,6 +290,28 @@ async function getDbPingMs() {
   }
 }
 
+async function safeCreateIndex(collection, keys, options = {}) {
+  try {
+    return await collection.createIndex(keys, options);
+  } catch (err) {
+    if (
+      err?.code === 85 ||
+      err?.code === 86 ||
+      err?.codeName === "IndexOptionsConflict" ||
+      err?.codeName === "IndexKeySpecsConflict"
+    ) {
+      console.warn(
+        "⚠️ Skipping index due to existing conflicting definition:",
+        collection.collectionName,
+        JSON.stringify(keys),
+        JSON.stringify(options)
+      );
+      return null;
+    }
+    throw err;
+  }
+}
+
 async function connectMongo() {
   mongo = new MongoClient(MONGO_URI, {});
   await mongo.connect();
@@ -301,22 +323,22 @@ async function connectMongo() {
   configCol = db.collection("config");
   groupsCol = db.collection("groups");
 
-  await users.createIndex({ userId: 1 }, { unique: true });
-  await users.createIndex({ username: 1 }, { sparse: true });
-  await users.createIndex({ isVip: 1, updatedAt: -1 });
-  await users.createIndex({ startedBot: 1, updatedAt: -1 });
-  await txs.createIndex({ createdAt: -1 });
-  await txs.createIndex({ type: 1, createdAt: -1 });
-  await txs.createIndex({ userId: 1, createdAt: -1 });
-  await txs.createIndex({ fromUserId: 1, createdAt: -1 });
-  await txs.createIndex({ toUserId: 1, createdAt: -1 });
-  await orders.createIndex({ status: 1, createdAt: -1 });
-  await orders.createIndex({ userId: 1, createdAt: -1 });
-  await configCol.createIndex({ key: 1 }, { unique: true });
-  await groupsCol.createIndex({ groupId: 1 }, { unique: true });
-  await groupsCol.createIndex({ username: 1 }, { sparse: true });
-  await groupsCol.createIndex({ approvalStatus: 1, updatedAt: -1 });
-  await groupsCol.createIndex({ updatedAt: -1 });
+  await safeCreateIndex(users, { userId: 1 }, { unique: true });
+  await safeCreateIndex(users, { username: 1 }, { sparse: true });
+  await safeCreateIndex(users, { isVip: 1, updatedAt: -1 });
+  await safeCreateIndex(users, { startedBot: 1, updatedAt: -1 });
+  await safeCreateIndex(txs, { createdAt: -1 });
+  await safeCreateIndex(txs, { type: 1, createdAt: -1 });
+  await safeCreateIndex(txs, { userId: 1, createdAt: -1 });
+  await safeCreateIndex(txs, { fromUserId: 1, createdAt: -1 });
+  await safeCreateIndex(txs, { toUserId: 1, createdAt: -1 });
+  await safeCreateIndex(orders, { status: 1, createdAt: -1 });
+  await safeCreateIndex(orders, { userId: 1, createdAt: -1 });
+  await safeCreateIndex(configCol, { key: 1 }, { unique: true });
+  await safeCreateIndex(groupsCol, { groupId: 1 }, { unique: true });
+  await safeCreateIndex(groupsCol, { username: 1 }, { sparse: true });
+  await safeCreateIndex(groupsCol, { approvalStatus: 1, updatedAt: -1 });
+  await safeCreateIndex(groupsCol, { updatedAt: -1 });
 
   console.log("✅ Mongo connected");
 }
@@ -1167,8 +1189,8 @@ bot.command("status", async (ctx) => {
     users.countDocuments({}),
     groupsCol.countDocuments({}),
     users.countDocuments({ isVip: true }),
-    Promise.resolve([...diceChallenges.values()].filter((c) => c && c.status === "OPEN").length),
-    Promise.resolve([...shanChallenges.values()].filter((c) => c && c.status === "OPEN").length),
+    Promise.resolve([...activeDiceChallenges.values()].filter((c) => c && c.status === "OPEN").length),
+    Promise.resolve([...activeShanChallenges.values()].filter((c) => c && c.status === "OPEN").length),
   ]);
 
   const mem = process.memoryUsage();
